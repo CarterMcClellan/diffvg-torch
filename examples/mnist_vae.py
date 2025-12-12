@@ -13,6 +13,7 @@ Usage:
 import argparse
 import os
 import sys
+from datetime import datetime
 
 import numpy as np
 import torch as th
@@ -34,8 +35,8 @@ def log(msg, *args):
 
 # Output directory - write to shared results folder for comparison
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-OUTPUT_DIR = "/workspace/tests/results/triton"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+RESULTS_BASE = "/workspace/tests/results/triton"
+OUTPUT_DIR = None  # Will be set in train() with timestamp
 
 
 class Flatten(th.nn.Module):
@@ -337,13 +338,13 @@ class VectorMNISTVAE(th.nn.Module):
     """
     VAE that generates vector graphics for MNIST digits.
 
-    Encoder: CNN that maps image -> latent space
+    Encoder: CNN or FC that maps image -> latent space
     Decoder: MLP that maps latent -> Bezier control points
     Renderer: Triton backend renders paths to image
     """
 
     def __init__(self, imsize=28, paths=4, segments=5, samples=2, zdim=128,
-                 conditional=False, variational=True, stroke_width=None):
+                 conditional=False, variational=True, stroke_width=None, fc=False):
         super(VectorMNISTVAE, self).__init__()
 
         self.samples = samples
@@ -353,6 +354,7 @@ class VectorMNISTVAE(th.nn.Module):
         self.zdim = zdim
         self.conditional = conditional
         self.variational = variational
+        self.fc = fc
 
         if stroke_width is None:
             # Match pydiffvg default
@@ -361,21 +363,33 @@ class VectorMNISTVAE(th.nn.Module):
             self.stroke_width = stroke_width
 
         ncond = 10 if self.conditional else 0
+        mult = 1
 
-        # Encoder (convolutional) - matches pydiffvg architecture
-        # padding=0 gives: 28->12->4->1 with kernel=4, stride=2
-        self.encoder = th.nn.Sequential(
-            th.nn.Conv2d(1 + ncond, 64, 4, padding=0, stride=2),
-            th.nn.LeakyReLU(0.2, inplace=True),
-            th.nn.Conv2d(64, 128, 4, padding=0, stride=2),
-            th.nn.LeakyReLU(0.2, inplace=True),
-            th.nn.Conv2d(128, 256, 4, padding=0, stride=2),
-            th.nn.LeakyReLU(0.2, inplace=True),
-            Flatten(),
-        )
-
-        # Encoder output size: 28->12->4->1 with padding=0
-        encoder_out_size = 256 * 1 * 1
+        if not self.fc:
+            # Encoder (convolutional) - matches pydiffvg architecture
+            # padding=0 gives: 28->12->4->1 with kernel=4, stride=2
+            self.encoder = th.nn.Sequential(
+                th.nn.Conv2d(1 + ncond, mult*64, 4, padding=0, stride=2),
+                th.nn.LeakyReLU(0.2, inplace=True),
+                th.nn.Conv2d(mult*64, mult*128, 4, padding=0, stride=2),
+                th.nn.LeakyReLU(0.2, inplace=True),
+                th.nn.Conv2d(mult*128, mult*256, 4, padding=0, stride=2),
+                th.nn.LeakyReLU(0.2, inplace=True),
+                Flatten(),
+            )
+            # Encoder output size: 28->12->4->1 with padding=0
+            encoder_out_size = 256 * 1 * 1
+        else:
+            # FC encoder - matches pydiffvg fc=True mode
+            # Note: input is already flattened in encode() for FC mode
+            fc_input_size = 28*28 + ncond if self.conditional else 28*28
+            self.encoder = th.nn.Sequential(
+                th.nn.Linear(fc_input_size, mult*256),
+                th.nn.LeakyReLU(0.2, inplace=True),
+                th.nn.Linear(mult*256, mult*256),
+                th.nn.LeakyReLU(0.2, inplace=True),
+            )
+            encoder_out_size = mult * 256
 
         self.mu_predictor = th.nn.Linear(encoder_out_size, zdim)
         if self.variational:
@@ -413,10 +427,17 @@ class VectorMNISTVAE(th.nn.Module):
 
         if self.conditional:
             label_onehot = _onehot(label)
-            label_onehot = label_onehot.view(bs, 10, 1, 1).repeat(1, 1, h, w)
-            x = th.cat([im, label_onehot], 1)
+            if not self.fc:
+                label_onehot = label_onehot.view(bs, 10, 1, 1).repeat(1, 1, h, w)
+                x = th.cat([im, label_onehot], 1)
+            else:
+                # FC mode: flatten image first, then concat label
+                x = th.cat([im.view(bs, -1), label_onehot], 1)
         else:
-            x = im
+            if self.fc:
+                x = im.view(bs, -1)
+            else:
+                x = im
 
         out = self.encoder(x)
         mu = self.mu_predictor(out)
@@ -542,6 +563,14 @@ class MNISTDataset(th.utils.data.Dataset):
 
 def train(args):
     """Train the VAE."""
+    global OUTPUT_DIR
+
+    # Create timestamped output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    OUTPUT_DIR = os.path.join(RESULTS_BASE, f"run_{timestamp}")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    log(f"Output directory: {OUTPUT_DIR}")
+
     th.manual_seed(args.seed)
     np.random.seed(args.seed)
 
@@ -565,9 +594,13 @@ def train(args):
         samples=args.samples,
         zdim=args.zdim,
         conditional=args.conditional,
-        variational=True
+        variational=True,
+        fc=args.fc
     )
     model.to(device)
+
+    log(f"Model config: paths={args.paths}, segments={args.segments}, zdim={args.zdim}")
+    log(f"Encoder: {'FC' if args.fc else 'Conv'}, conditional={args.conditional}")
 
     # Optimizer - match pydiffvg betas
     optimizer = th.optim.Adam(model.parameters(), lr=args.lr, betas=(0.5, 0.5), eps=1e-12)
@@ -732,21 +765,24 @@ def main():
     parser.add_argument("--cuda", action="store_true", default=th.cuda.is_available(),
                        help="Use CUDA if available")
     parser.add_argument("--data_dir", default="./data", help="Data directory")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")  # Match pydiffvg
 
-    # Training args
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    # Training args - defaults match pydiffvg
+    parser.add_argument("--lr", type=float, default=5e-5, help="Learning rate")  # Match pydiffvg
     parser.add_argument("--bs", type=int, default=8, help="Batch size")
     parser.add_argument("--num_epochs", type=int, default=50, help="Number of epochs")
     parser.add_argument("--kld_weight", type=float, default=1.0, help="KLD loss weight")
     parser.add_argument("--max_batches", type=int, default=None, help="Max batches per epoch (for testing)")
 
-    # Model args
-    parser.add_argument("--paths", type=int, default=4, help="Number of paths")
+    # Model args - defaults match pydiffvg
+    parser.add_argument("--paths", type=int, default=1, help="Number of paths")  # Match pydiffvg
     parser.add_argument("--segments", type=int, default=3, help="Segments per path")
-    parser.add_argument("--samples", type=int, default=2, help="AA samples")
-    parser.add_argument("--zdim", type=int, default=32, help="Latent dimension")
-    parser.add_argument("--conditional", action="store_true", help="Conditional VAE")
+    parser.add_argument("--samples", type=int, default=4, help="AA samples")  # Match pydiffvg
+    parser.add_argument("--zdim", type=int, default=20, help="Latent dimension")  # Match pydiffvg
+    parser.add_argument("--no-conditional", dest="conditional", action="store_false",
+                       default=True, help="Disable conditional VAE")  # Match pydiffvg default
+    parser.add_argument("--no-fc", dest="fc", action="store_false",
+                       default=True, help="Use conv encoder instead of FC")  # Match pydiffvg default
 
     args = parser.parse_args()
 
