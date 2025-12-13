@@ -74,7 +74,7 @@ If you use this code, please cite:
     title={diffvg-triton: Fast Differentiable Vector Graphics in Pure Python},
     author={Carter McClellan},
     year={2025},
-    url={https://github.com/carter/diffvg-triton}
+    url={https://github.com/CarterMcClellan/diffvg-triton}
 }
 ```
 
