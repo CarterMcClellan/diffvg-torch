@@ -10,7 +10,7 @@ A fast, pure-Python reimplementation of [diffvg](https://github.com/BachiLi/diff
 
 ## SVG Rendering
 
-![Smiley Rendering](assets/smiley_parity.png)
+![Smiley Rendering](assets/smiley_render.png)
 
 ## Performance
 
