@@ -10,7 +10,9 @@ A fast, pure-PyTorch reimplementation of [diffvg](https://github.com/BachiLi/dif
 
 ## SVG Rendering
 
-![Smiley Rendering](assets/smiley_render.png)
+| Cairo | diffvg-torch |
+|:-----:|:------------:|
+| ![Cairo](assets/smiley_cairo.png) | ![diffvg-torch](assets/smiley_diffvg.png) |
 
 ## Performance
 
@@ -28,20 +30,16 @@ A fast, pure-PyTorch reimplementation of [diffvg](https://github.com/BachiLi/dif
 28x28 canvas, 1 path, 3 segments:
 
 | Batch Size | diffvg-torch | pydiffvg | Speedup |
-|------------|---------------|----------|---------|
+|------------|--------------|----------|---------|
 | 8 | 5.2ms | 16.2ms | **3.1x** |
 | 32 | 11.6ms | 71.7ms | **6.2x** |
 | 64 | 23.1ms | 137.9ms | **6.0x** |
-
-*Benchmarked on NVIDIA DGX Spark*
 
 ## Demo: MNIST VAE
 
 Vector graphics reconstruction using 1 bezier path with 3 segments per digit:
 
 ![MNIST VAE Demo](assets/mnist_vae_demo.png)
-
-*Left: reference MNIST digit, Right: vector graphics reconstruction*
 
 ## Installation
 
@@ -77,7 +75,6 @@ output = render_batch_fast(
 from diffvg_triton import render, svg_to_scene
 import torch
 
-# Load and render SVG file
 canvas_w, canvas_h, shapes, shape_groups = svg_to_scene("input.svg")
 
 output = render(
@@ -94,29 +91,6 @@ output = render(
 # output: [H, W, 4] RGBA tensor
 ```
 
-## Examples
-
-### MNIST VAE
-
-Train a VAE that generates MNIST digits as vector graphics:
-
-```bash
-python examples/mnist_vae.py train --paths 1 --segments 3 --num_epochs 50
-```
-
-### MNIST VQ-VAE
-
-Train a VQ-VAE with discrete codebook representations:
-
-```bash
-python examples/vqvae_train.py --num_epochs 30 --bs 64 --latent_dim 20 \
-    --num_embeddings 64 --paths 1 --segments 3 --use_ema --output_dir outputs
-```
-
-![MNIST VQ-VAE Demo](assets/vqvae_demo.png)
-
-*Top row: original MNIST digits, Bottom row: VQ-VAE reconstructions*
-
 ## Supported SVG Features
 
 - **Shapes**: `<path>`, `<circle>`, `<ellipse>`, `<rect>`
@@ -126,25 +100,12 @@ python examples/vqvae_train.py --num_epochs 30 --bs 64 --latent_dim 20 \
 
 ## Citation
 
-If you use this code, please cite:
-
 ```bibtex
 @software{diffvg_torch,
     title={diffvg-torch: Fast Differentiable Vector Graphics in Pure PyTorch},
     author={Carter McClellan},
     year={2025},
     url={https://github.com/CarterMcClellan/diffvg-torch}
-}
-```
-
-This work builds upon the original diffvg:
-
-```bibtex
-@article{li2020differentiable,
-    title={Differentiable Vector Graphics Rasterization for Editing and Learning},
-    author={Li, Tzu-Mao and Luk{\'a}{\v{c}}, Michal and Gharbi, Micha{\"e}l and Ragan-Kelley, Jonathan},
-    journal={ACM Trans. Graph. (Proc. SIGGRAPH Asia)},
-    year={2020}
 }
 ```
 
