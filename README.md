@@ -1,10 +1,10 @@
-# diffvg-triton
+# diffvg-torch
 
-A fast, pure-Python reimplementation of [diffvg](https://github.com/BachiLi/diffvg) using Triton kernels. Differentiable and optimized for batched GPU workloads.
+A fast, pure-PyTorch reimplementation of [diffvg](https://github.com/BachiLi/diffvg). Differentiable and optimized for batched GPU workloads.
 
 ## Key Features
 
-- **Pure Python/Triton** - No C++ compilation, no custom CUDA kernels
+- **Pure PyTorch** - No C++ compilation, no custom CUDA kernels
 - **Batched rendering** - Efficient parallel rendering of multiple scenes
 - **Full gradient support** - Backpropagation through the rendering pipeline
 
@@ -27,7 +27,7 @@ A fast, pure-Python reimplementation of [diffvg](https://github.com/BachiLi/diff
 
 28x28 canvas, 1 path, 3 segments:
 
-| Batch Size | diffvg-triton | pydiffvg | Speedup |
+| Batch Size | diffvg-torch | pydiffvg | Speedup |
 |------------|---------------|----------|---------|
 | 8 | 5.2ms | 16.2ms | **3.1x** |
 | 32 | 11.6ms | 71.7ms | **6.2x** |
@@ -46,7 +46,7 @@ Vector graphics reconstruction using 1 bezier path with 3 segments per digit:
 ## Installation
 
 ```bash
-pip install torch triton numpy
+pip install torch numpy
 pip install -e .
 ```
 
@@ -129,11 +129,11 @@ python examples/vqvae_train.py --num_epochs 30 --bs 64 --latent_dim 20 \
 If you use this code, please cite:
 
 ```bibtex
-@software{diffvg_triton,
-    title={diffvg-triton: Fast Differentiable Vector Graphics in Pure Python},
+@software{diffvg_torch,
+    title={diffvg-torch: Fast Differentiable Vector Graphics in Pure PyTorch},
     author={Carter McClellan},
     year={2025},
-    url={https://github.com/CarterMcClellan/diffvg-triton}
+    url={https://github.com/CarterMcClellan/diffvg-torch}
 }
 ```
 
