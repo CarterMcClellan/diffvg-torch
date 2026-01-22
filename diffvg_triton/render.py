@@ -247,7 +247,7 @@ def _sample_color_at_point(
 def render_scene_py(
     scene: FlattenedScene,
     config: RenderConfig = None,
-    pydiffvg_compatible: bool = True,  # Match pydiffvg output format
+    pydiffvg_compatible: bool = False,  # If True, output raw RGBA without background
 ) -> torch.Tensor:
     """
     Render a scene using Python reference implementation.
@@ -478,6 +478,8 @@ def render(
     seed: int = 42,
     background_color: torch.Tensor = None,
     use_prefiltering: bool = False,
+    original_width: int = None,
+    original_height: int = None,
 ) -> torch.Tensor:
     """
     High-level render function compatible with pydiffvg API.
@@ -492,14 +494,44 @@ def render(
         seed: Random seed
         background_color: [4] background RGBA, defaults to white
         use_prefiltering: Use SDF-based smooth edges
+        original_width: Original viewBox width (for scaling). If None, uses canvas_width.
+        original_height: Original viewBox height (for scaling). If None, uses canvas_height.
 
     Returns:
         [H, W, 4] RGBA image tensor
     """
     from .scene import flatten_scene
+    import copy
 
     if background_color is None:
         background_color = torch.tensor([1.0, 1.0, 1.0, 1.0])
+
+    # Handle scaling if output size differs from original viewBox size
+    if original_width is None:
+        original_width = canvas_width
+    if original_height is None:
+        original_height = canvas_height
+
+    scale_x = canvas_width / original_width
+    scale_y = canvas_height / original_height
+
+    # Scale shapes if needed
+    if scale_x != 1.0 or scale_y != 1.0:
+        scaled_shapes = []
+        for shape in shapes:
+            # Deep copy to avoid modifying original
+            new_shape = copy.copy(shape)
+            # Scale points
+            scaled_points = shape.points.clone()
+            scaled_points[:, 0] *= scale_x
+            scaled_points[:, 1] *= scale_y
+            new_shape.points = scaled_points
+            # Scale stroke width
+            if hasattr(shape, 'stroke_width') and shape.stroke_width is not None:
+                avg_scale = (scale_x + scale_y) / 2
+                new_shape.stroke_width = shape.stroke_width * avg_scale
+            scaled_shapes.append(new_shape)
+        shapes = scaled_shapes
 
     # Flatten scene
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -514,8 +546,8 @@ def render(
         use_prefiltering=use_prefiltering,
     )
 
-    # Render
-    return render_scene(scene, config, use_python_reference=True)
+    # Render using fast vectorized implementation
+    return render_scene_vectorized(scene, config)
 
 
 def _generate_sample_positions_vectorized(
@@ -559,13 +591,31 @@ def _generate_sample_positions_vectorized(
     return positions
 
 
+def _compute_distance_to_quadratic_segment_vectorized(
+    sample_pos: torch.Tensor,  # [N, 2] sample positions
+    p0: torch.Tensor,  # [2] start point
+    p1: torch.Tensor,  # [2] control point
+    p2: torch.Tensor,  # [2] end point
+    num_samples: int = 65,
+) -> torch.Tensor:
+    """Compute distance from sample positions to a quadratic bezier segment."""
+    t = torch.linspace(0, 1, num_samples, device=sample_pos.device, dtype=sample_pos.dtype)
+    w0 = (1 - t) ** 2
+    w1 = 2 * (1 - t) * t
+    w2 = t ** 2
+    curve_points = w0.unsqueeze(-1) * p0 + w1.unsqueeze(-1) * p1 + w2.unsqueeze(-1) * p2
+    diff = sample_pos.unsqueeze(1) - curve_points.unsqueeze(0)
+    dist_sq = (diff ** 2).sum(dim=-1)
+    return torch.sqrt(dist_sq.min(dim=1).values)
+
+
 def _compute_distance_to_cubic_segment_vectorized(
     sample_pos: torch.Tensor,  # [..., 2] sample positions
     p0: torch.Tensor,  # [2] start point
     p1: torch.Tensor,  # [2] control point 1
     p2: torch.Tensor,  # [2] control point 2
     p3: torch.Tensor,  # [2] end point
-    num_samples: int = 9,
+    num_samples: int = 65,
 ) -> torch.Tensor:
     """
     Compute distance from sample positions to a cubic bezier segment.
@@ -603,6 +653,102 @@ def _compute_distance_to_cubic_segment_vectorized(
     return min_dist
 
 
+def _compute_winding_number_line_vectorized(
+    samples: torch.Tensor,  # [N, 2]
+    p0: torch.Tensor,       # [2]
+    p1: torch.Tensor,       # [2]
+) -> torch.Tensor:
+    """Vectorized winding number contribution from ray-line intersection."""
+    # Horizontal ray from sample point to the right
+    dy = p1[1] - p0[1]
+
+    # Skip near-horizontal lines
+    if abs(dy.item()) < 1e-10:
+        return torch.zeros(samples.shape[0], device=samples.device, dtype=torch.int32)
+
+    # t parameter on line where y = sample_y
+    t = (samples[:, 1] - p0[1]) / dy
+
+    # x coordinate at intersection
+    x_int = p0[0] + t * (p1[0] - p0[0])
+
+    # Valid if t in [0,1] and intersection is to the right of sample
+    valid = (t >= 0) & (t <= 1) & (x_int >= samples[:, 0])
+
+    # Direction: +1 for upward, -1 for downward
+    sign = torch.where(dy > 0, 1, -1)
+
+    return torch.where(valid, sign, 0).to(torch.int32)
+
+
+def _compute_winding_number_quadratic_vectorized(
+    samples: torch.Tensor,  # [N, 2]
+    p0: torch.Tensor,       # [2]
+    p1: torch.Tensor,       # [2]
+    p2: torch.Tensor,       # [2]
+) -> torch.Tensor:
+    """Vectorized winding number for quadratic bezier using sampling."""
+    # Sample the curve and treat as line segments
+    N = samples.shape[0]
+    device = samples.device
+    winding = torch.zeros(N, device=device, dtype=torch.int32)
+
+    num_subdivisions = 8
+    t_vals = torch.linspace(0, 1, num_subdivisions + 1, device=device)
+
+    for i in range(num_subdivisions):
+        t0, t1 = t_vals[i], t_vals[i + 1]
+        # Evaluate bezier at t0 and t1
+        w0_0 = (1 - t0) ** 2
+        w1_0 = 2 * (1 - t0) * t0
+        w2_0 = t0 ** 2
+        w0_1 = (1 - t1) ** 2
+        w1_1 = 2 * (1 - t1) * t1
+        w2_1 = t1 ** 2
+
+        seg_p0 = w0_0 * p0 + w1_0 * p1 + w2_0 * p2
+        seg_p1 = w0_1 * p0 + w1_1 * p1 + w2_1 * p2
+
+        winding = winding + _compute_winding_number_line_vectorized(samples, seg_p0, seg_p1)
+
+    return winding
+
+
+def _compute_winding_number_cubic_vectorized(
+    samples: torch.Tensor,  # [N, 2]
+    p0: torch.Tensor,       # [2]
+    p1: torch.Tensor,       # [2]
+    p2: torch.Tensor,       # [2]
+    p3: torch.Tensor,       # [2]
+) -> torch.Tensor:
+    """Vectorized winding number for cubic bezier using sampling."""
+    N = samples.shape[0]
+    device = samples.device
+    winding = torch.zeros(N, device=device, dtype=torch.int32)
+
+    num_subdivisions = 8
+    t_vals = torch.linspace(0, 1, num_subdivisions + 1, device=device)
+
+    for i in range(num_subdivisions):
+        t0, t1 = t_vals[i], t_vals[i + 1]
+        # Evaluate cubic bezier at t0 and t1
+        w0_0 = (1 - t0) ** 3
+        w1_0 = 3 * (1 - t0) ** 2 * t0
+        w2_0 = 3 * (1 - t0) * t0 ** 2
+        w3_0 = t0 ** 3
+        w0_1 = (1 - t1) ** 3
+        w1_1 = 3 * (1 - t1) ** 2 * t1
+        w2_1 = 3 * (1 - t1) * t1 ** 2
+        w3_1 = t1 ** 3
+
+        seg_p0 = w0_0 * p0 + w1_0 * p1 + w2_0 * p2 + w3_0 * p3
+        seg_p1 = w0_1 * p0 + w1_1 * p1 + w2_1 * p2 + w3_1 * p3
+
+        winding = winding + _compute_winding_number_line_vectorized(samples, seg_p0, seg_p1)
+
+    return winding
+
+
 def render_scene_vectorized(
     scene: FlattenedScene,
     config: RenderConfig = None,
@@ -610,8 +756,7 @@ def render_scene_vectorized(
     """
     Render a scene using vectorized PyTorch operations (runs on GPU).
 
-    This is faster than the Python reference but not as fast as a custom Triton kernel.
-    Optimized for stroke-only rendering (as used in MNIST VAE).
+    Supports both fills (via winding number) and strokes (via distance).
 
     Args:
         scene: Flattened scene data
@@ -638,30 +783,36 @@ def render_scene_vectorized(
 
     # Initialize with background color
     bg = torch.tensor(config.background_color, device=device, dtype=torch.float32)
-    output = bg.view(1, 1, 4).expand(height, width, 4).clone()
 
     # Process each shape group
     if scene.paths is None:
-        return output
+        return bg.view(1, 1, 4).expand(height, width, 4).clone()
 
     paths = scene.paths
     groups = scene.groups
 
     # Flatten sample positions for batch processing: [H*W*num_samples, 2]
     flat_samples = sample_pos.reshape(-1, 2)
+    N = flat_samples.shape[0]
 
     # Initialize sample colors with background
-    sample_colors = bg.view(1, 4).expand(flat_samples.shape[0], 4).clone()
+    sample_colors = bg.view(1, 4).expand(N, 4).clone()
 
     for group_idx in range(groups.num_groups):
         if not groups.shape_mask[group_idx, 0].item():
             continue
 
+        has_fill = groups.has_fill[group_idx].item()
         has_stroke = groups.has_stroke[group_idx].item()
-        if not has_stroke or groups.stroke_color is None:
-            continue
+        use_even_odd = groups.use_even_odd_rule[group_idx].item()
 
-        stroke_color = groups.stroke_color[group_idx]  # [4]
+        fill_color = None
+        if has_fill and groups.fill_color is not None:
+            fill_color = groups.fill_color[group_idx]
+
+        stroke_color = None
+        if has_stroke and groups.stroke_color is not None:
+            stroke_color = groups.stroke_color[group_idx]
 
         # Process each shape in group
         num_shapes = groups.num_shapes[group_idx].item()
@@ -675,82 +826,107 @@ def render_scene_vectorized(
             if shape_type != ShapeType.PATH:
                 continue
 
-            # Get stroke width
-            stroke_width = paths.stroke_width[shape_idx].item()
-            if stroke_width <= 0:
-                continue
-
-            half_width = stroke_width / 2.0
-
             # Get path data
             point_offset = paths.point_offsets[shape_idx].item()
             num_segments = paths.num_segments[shape_idx].item()
             seg_types = paths.segment_types[shape_idx, :num_segments]
+            is_closed = paths.is_closed[shape_idx].item()
 
-            # Compute minimum distance to all segments
-            min_dist = torch.full((flat_samples.shape[0],), float('inf'), device=device)
+            # === FILL ===
+            if has_fill and fill_color is not None:
+                # Compute winding number for each sample
+                winding = torch.zeros(N, device=device, dtype=torch.int32)
+                current_point = point_offset
 
-            current_point = point_offset
-            for seg_idx in range(num_segments):
-                seg_type = seg_types[seg_idx].item()
+                for seg_idx in range(num_segments):
+                    seg_type = seg_types[seg_idx].item()
 
-                if seg_type == 2:  # Cubic bezier
-                    p0 = paths.points[current_point]
-                    p1 = paths.points[current_point + 1]
-                    p2 = paths.points[current_point + 2]
-                    p3 = paths.points[current_point + 3]
+                    if seg_type == 2:  # Cubic
+                        p0 = paths.points[current_point]
+                        p1 = paths.points[current_point + 1]
+                        p2 = paths.points[current_point + 2]
+                        p3 = paths.points[current_point + 3]
+                        winding = winding + _compute_winding_number_cubic_vectorized(flat_samples, p0, p1, p2, p3)
+                        current_point += 3
+                    elif seg_type == 1:  # Quadratic
+                        p0 = paths.points[current_point]
+                        p1 = paths.points[current_point + 1]
+                        p2 = paths.points[current_point + 2]
+                        winding = winding + _compute_winding_number_quadratic_vectorized(flat_samples, p0, p1, p2)
+                        current_point += 2
+                    else:  # Line
+                        p0 = paths.points[current_point]
+                        p1 = paths.points[current_point + 1]
+                        winding = winding + _compute_winding_number_line_vectorized(flat_samples, p0, p1)
+                        current_point += 1
 
-                    dist = _compute_distance_to_cubic_segment_vectorized(
-                        flat_samples, p0, p1, p2, p3, num_samples=17
+                # Apply fill rule
+                if use_even_odd:
+                    inside = (winding % 2) != 0
+                else:
+                    inside = winding != 0
+
+                # Alpha blend fill color
+                alpha = fill_color[3]
+                sample_colors = torch.where(
+                    inside.unsqueeze(-1),
+                    fill_color * alpha + sample_colors * (1 - alpha),
+                    sample_colors
+                )
+
+            # === STROKE ===
+            if has_stroke and stroke_color is not None:
+                stroke_width = paths.stroke_width[shape_idx].item()
+                if stroke_width > 0:
+                    half_width = stroke_width / 2.0
+
+                    # Compute minimum distance to all segments
+                    min_dist = torch.full((N,), float('inf'), device=device)
+                    current_point = point_offset
+
+                    for seg_idx in range(num_segments):
+                        seg_type = seg_types[seg_idx].item()
+
+                        if seg_type == 2:  # Cubic
+                            p0 = paths.points[current_point]
+                            p1 = paths.points[current_point + 1]
+                            p2 = paths.points[current_point + 2]
+                            p3 = paths.points[current_point + 3]
+                            dist = _compute_distance_to_cubic_segment_vectorized(flat_samples, p0, p1, p2, p3)
+                            min_dist = torch.minimum(min_dist, dist)
+                            current_point += 3
+                        elif seg_type == 1:  # Quadratic
+                            p0 = paths.points[current_point]
+                            p1 = paths.points[current_point + 1]
+                            p2 = paths.points[current_point + 2]
+                            dist = _compute_distance_to_quadratic_segment_vectorized(flat_samples, p0, p1, p2)
+                            min_dist = torch.minimum(min_dist, dist)
+                            current_point += 2
+                        else:  # Line
+                            p0 = paths.points[current_point]
+                            p1 = paths.points[current_point + 1]
+                            d = p1 - p0
+                            len_sq = (d ** 2).sum()
+                            if len_sq > 1e-10:
+                                v = flat_samples - p0
+                                t = torch.clamp((v * d).sum(dim=-1) / len_sq, 0, 1)
+                                closest = p0 + t.unsqueeze(-1) * d
+                                dist = torch.sqrt(((flat_samples - closest) ** 2).sum(dim=-1))
+                            else:
+                                dist = torch.sqrt(((flat_samples - p0) ** 2).sum(dim=-1))
+                            min_dist = torch.minimum(min_dist, dist)
+                            current_point += 1
+
+                    # Inside stroke band
+                    inside_stroke = min_dist <= half_width
+
+                    # Alpha blend stroke color
+                    alpha = stroke_color[3]
+                    sample_colors = torch.where(
+                        inside_stroke.unsqueeze(-1),
+                        stroke_color * alpha + sample_colors * (1 - alpha),
+                        sample_colors
                     )
-                    min_dist = torch.minimum(min_dist, dist)
-                    current_point += 3
-
-                elif seg_type == 1:  # Quadratic bezier
-                    p0 = paths.points[current_point]
-                    p1 = paths.points[current_point + 1]
-                    p2 = paths.points[current_point + 2]
-
-                    # Sample quadratic bezier
-                    t = torch.linspace(0, 1, 9, device=device)
-                    w0 = (1 - t) ** 2
-                    w1 = 2 * (1 - t) * t
-                    w2 = t ** 2
-                    curve_pts = w0.unsqueeze(-1) * p0 + w1.unsqueeze(-1) * p1 + w2.unsqueeze(-1) * p2
-
-                    diff = flat_samples.unsqueeze(1) - curve_pts.unsqueeze(0)
-                    dist_sq = (diff ** 2).sum(dim=-1)
-                    dist = torch.sqrt(dist_sq.min(dim=1).values)
-                    min_dist = torch.minimum(min_dist, dist)
-                    current_point += 2
-
-                else:  # Line
-                    p0 = paths.points[current_point]
-                    p1 = paths.points[current_point + 1]
-
-                    # Distance to line segment
-                    d = p1 - p0
-                    len_sq = (d ** 2).sum()
-                    if len_sq > 1e-10:
-                        v = flat_samples - p0
-                        t = torch.clamp((v * d).sum(dim=-1) / len_sq, 0, 1)
-                        closest = p0 + t.unsqueeze(-1) * d
-                        dist = torch.sqrt(((flat_samples - closest) ** 2).sum(dim=-1))
-                    else:
-                        dist = torch.sqrt(((flat_samples - p0) ** 2).sum(dim=-1))
-                    min_dist = torch.minimum(min_dist, dist)
-                    current_point += 1
-
-            # Compute coverage from distance
-            inside_stroke = min_dist <= half_width
-
-            # Alpha blend stroke color where inside
-            alpha = stroke_color[3]
-            sample_colors = torch.where(
-                inside_stroke.unsqueeze(-1),
-                stroke_color * alpha + sample_colors * (1 - alpha),
-                sample_colors
-            )
 
     # Average samples per pixel
     sample_colors = sample_colors.reshape(height, width, num_samples, 4)

@@ -173,7 +173,7 @@ class ShapeType:
     RECT = 3
 
 
-def flatten_paths(paths: list, max_segments: int = 128, device: torch.device = None) -> FlattenedPaths:
+def flatten_paths(paths: list, max_segments: int = 512, device: torch.device = None) -> FlattenedPaths:
     """
     Flatten a list of Path objects into FlattenedPaths tensor representation.
 

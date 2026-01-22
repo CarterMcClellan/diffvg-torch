@@ -1,25 +1,63 @@
 # diffvg-triton
 
-A fast, pure-Python reimplementation of [diffvg](https://github.com/BachiLi/diffvg) using Triton kernels. Achieves numerical parity with the original C++/CUDA implementation while being significantly simpler and faster for batched workloads.
+A fast, pure-Python reimplementation of [diffvg](https://github.com/BachiLi/diffvg) using Triton kernels. Achieves numerical parity with CairoSVG while being differentiable and optimized for batched GPU workloads.
 
 ## Key Features
 
 - **Pure Python/Triton** - No C++ compilation, no custom CUDA kernels
 - **Batched rendering** - Efficient parallel rendering of multiple scenes
 - **Full gradient support** - Backpropagation through the rendering pipeline
-- **Numerical parity** - Matches diffvg output for forward and backward passes
+- **Cairo parity** - Matches CairoSVG output for fills, strokes, colors, and shapes
+
+## Cairo Parity
+
+Comparison against CairoSVG across various SVG features:
+
+![Cairo Parity](assets/cairo_parity.png)
+
+| Test Case | MAE | Status |
+|-----------|-----|--------|
+| Simple Triangle | 0.5 | PASS |
+| Red Rectangle | 0.2 | PASS |
+| Blue Circle | 0.4 | PASS |
+| Cubic Bezier | 0.5 | PASS |
+| Two Overlapping | 0.7 | PASS |
+| Star Shape | 0.2 | PASS |
+| Three Colors | 0.8 | PASS |
+| Fill + Stroke | 0.7 | PASS |
+
+*MAE on 0-255 scale. All tests < 1.0 MAE.*
+
+### Complex SVG Example
+
+Multi-layer SVG with circles, ellipses, paths, fills, strokes, and transparency:
+
+![Smiley Parity](assets/smiley_parity.png)
+
+*MAE: 1.09 - Nearly identical to Cairo rendering*
 
 ## Performance
 
-Backward pass speedup vs pydiffvg (28x28 canvas, 1 path, 3 segments):
+### Batched Rendering (render_batch_fast)
 
-| Batch Size | Backward Pass | Speedup |
-|------------|---------------|---------|
-| 8 | 5.2ms vs 16.2ms | **3.1x** |
-| 32 | 11.6ms vs 71.7ms | **6.2x** |
-| 64 | 23.1ms vs 137.9ms | **6.0x** |
+| Batch Size | Total Time | Per Image |
+|------------|------------|-----------|
+| 1 | 2.0ms | 2.0ms |
+| 4 | 7.6ms | 1.9ms |
+| 16 | 41.3ms | 2.6ms |
+| 64 | 176.9ms | 2.8ms |
 
-*Benchmarked on NVIDIA DGX Spark. (tests/benchmarking)*
+### Backward Pass Speedup vs pydiffvg
+
+28x28 canvas, 1 path, 3 segments:
+
+| Batch Size | diffvg-triton | pydiffvg | Speedup |
+|------------|---------------|----------|---------|
+| 8 | 5.2ms | 16.2ms | **3.1x** |
+| 32 | 11.6ms | 71.7ms | **6.2x** |
+| 64 | 23.1ms | 137.9ms | **6.0x** |
+
+*Benchmarked on NVIDIA DGX Spark*
 
 ## Demo: MNIST VAE
 
@@ -39,17 +77,17 @@ pip install -e .
 ## Quick Start
 
 ```python
-from diffvg_triton.render_batch import render_batch_fast
+from diffvg_triton import render_batch_fast
 
 # Render batched bezier paths
 # control_points: [B, num_paths, num_segments, 4, 2]
-# widths: [B, num_paths]
+# stroke_widths: [B, num_paths]
 # alphas: [B, num_paths]
 output = render_batch_fast(
     canvas_width=28,
     canvas_height=28,
     control_points=control_points,
-    widths=widths,
+    stroke_widths=stroke_widths,
     alphas=alphas,
     num_samples=4,
     use_fill=True,
@@ -57,7 +95,32 @@ output = render_batch_fast(
 # output: [B, 1, H, W] with gradients
 ```
 
-## MNIST VAE Example
+### SVG File Rendering
+
+```python
+from diffvg_triton import render, svg_to_scene
+import torch
+
+# Load and render SVG file
+canvas_w, canvas_h, shapes, shape_groups = svg_to_scene("input.svg")
+
+output = render(
+    canvas_width=256,
+    canvas_height=256,
+    shapes=shapes,
+    shape_groups=shape_groups,
+    num_samples_x=2,
+    num_samples_y=2,
+    background_color=torch.tensor([1.0, 1.0, 1.0, 1.0]),
+    original_width=canvas_w,
+    original_height=canvas_h,
+)
+# output: [H, W, 4] RGBA tensor
+```
+
+## Examples
+
+### MNIST VAE
 
 Train a VAE that generates MNIST digits as vector graphics:
 
@@ -65,9 +128,9 @@ Train a VAE that generates MNIST digits as vector graphics:
 python examples/mnist_vae.py train --paths 1 --segments 3 --num_epochs 50
 ```
 
-## MNIST VQ-VAE Example
+### MNIST VQ-VAE
 
-Train a VQ-VAE that learns discrete codebook representations of MNIST digits as vector graphics:
+Train a VQ-VAE with discrete codebook representations:
 
 ```bash
 python examples/vqvae_train.py --num_epochs 30 --bs 64 --latent_dim 20 \
@@ -76,7 +139,14 @@ python examples/vqvae_train.py --num_epochs 30 --bs 64 --latent_dim 20 \
 
 ![MNIST VQ-VAE Demo](assets/vqvae_demo.png)
 
-*Top row: original MNIST digits, Bottom row: VQ-VAE reconstructions (epoch 15)*
+*Top row: original MNIST digits, Bottom row: VQ-VAE reconstructions*
+
+## Supported SVG Features
+
+- **Shapes**: `<path>`, `<circle>`, `<ellipse>`, `<rect>`
+- **Path commands**: M, L, Q, C, Z (absolute and relative)
+- **Styling**: fill, stroke, stroke-width, opacity
+- **Colors**: Named colors, hex (#RGB, #RRGGBB), rgb(), rgba()
 
 ## Citation
 

@@ -192,8 +192,26 @@ def _parse_color(color_str: str) -> Optional[Tuple[float, float, float, float]]:
         m = re.match(r'rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)', color_str)
         if m:
             return (int(m.group(1))/255, int(m.group(2))/255, int(m.group(3))/255, float(m.group(4)) if m.group(4) else 1.0)
-    colors = {'black': (0,0,0,1), 'white': (1,1,1,1), 'red': (1,0,0,1), 'green': (0,0.5,0,1),
-              'blue': (0,0,1,1), 'yellow': (1,1,0,1), 'cyan': (0,1,1,1), 'magenta': (1,0,1,1)}
+    # Extended CSS named colors
+    colors = {
+        # Basic colors
+        'black': (0, 0, 0, 1), 'white': (1, 1, 1, 1), 'red': (1, 0, 0, 1),
+        'green': (0, 0.5, 0, 1), 'blue': (0, 0, 1, 1), 'yellow': (1, 1, 0, 1),
+        'cyan': (0, 1, 1, 1), 'magenta': (1, 0, 1, 1), 'aqua': (0, 1, 1, 1),
+        # Extended colors
+        'orange': (1, 0.647, 0, 1), 'purple': (0.5, 0, 0.5, 1), 'pink': (1, 0.753, 0.796, 1),
+        'brown': (0.647, 0.165, 0.165, 1), 'gray': (0.5, 0.5, 0.5, 1), 'grey': (0.5, 0.5, 0.5, 1),
+        'lime': (0, 1, 0, 1), 'navy': (0, 0, 0.5, 1), 'teal': (0, 0.5, 0.5, 1),
+        'olive': (0.5, 0.5, 0, 1), 'maroon': (0.5, 0, 0, 1), 'silver': (0.753, 0.753, 0.753, 1),
+        'gold': (1, 0.843, 0, 1), 'coral': (1, 0.498, 0.314, 1), 'salmon': (0.98, 0.502, 0.447, 1),
+        'khaki': (0.941, 0.902, 0.549, 1), 'violet': (0.933, 0.51, 0.933, 1),
+        'indigo': (0.294, 0, 0.51, 1), 'beige': (0.961, 0.961, 0.863, 1),
+        'crimson': (0.863, 0.078, 0.235, 1), 'darkblue': (0, 0, 0.545, 1),
+        'darkgreen': (0, 0.392, 0, 1), 'darkred': (0.545, 0, 0, 1),
+        'lightblue': (0.678, 0.847, 0.902, 1), 'lightgreen': (0.565, 0.933, 0.565, 1),
+        'lightgray': (0.827, 0.827, 0.827, 1), 'lightgrey': (0.827, 0.827, 0.827, 1),
+        'darkgray': (0.663, 0.663, 0.663, 1), 'darkgrey': (0.663, 0.663, 0.663, 1),
+    }
     return colors.get(color_str.lower(), (0, 0, 0, 1))
 
 
@@ -237,41 +255,77 @@ def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]
             if d:
                 num_ctrl, pts = _parse_path_d(d)
                 if len(pts) >= 2:
+                    stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
                     path = Path(torch.tensor(num_ctrl, dtype=torch.int32),
                                torch.tensor(pts, dtype=torch.float32),
+                               stroke_width=stroke_width,
                                is_closed=d.strip().upper().endswith('Z'))
                     shapes.append(path)
                     fc = _parse_color(fill_str)
+                    sc = _parse_color(stroke_str)
                     shape_groups.append(ShapeGroup(
                         [len(shapes)-1],
-                        fill_color=torch.tensor(fc, dtype=torch.float32) if fc else None))
+                        fill_color=torch.tensor(fc, dtype=torch.float32) if fc else None,
+                        stroke_color=torch.tensor(sc, dtype=torch.float32) if sc else None))
         elif tag == 'rect':
             x, y = float(elem.get('x', 0)), float(elem.get('y', 0))
             w, h = float(elem.get('width', 0)), float(elem.get('height', 0))
             if w > 0 and h > 0:
+                stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
                 pts = [(x,y), (x+w,y), (x+w,y+h), (x,y+h), (x,y)]
                 path = Path(torch.tensor([0,0,0,0], dtype=torch.int32),
-                           torch.tensor(pts, dtype=torch.float32), is_closed=True)
+                           torch.tensor(pts, dtype=torch.float32),
+                           stroke_width=stroke_width, is_closed=True)
                 shapes.append(path)
                 fc = _parse_color(fill_str)
+                sc = _parse_color(stroke_str)
                 shape_groups.append(ShapeGroup(
                     [len(shapes)-1],
-                    fill_color=torch.tensor(fc, dtype=torch.float32) if fc else None))
+                    fill_color=torch.tensor(fc, dtype=torch.float32) if fc else None,
+                    stroke_color=torch.tensor(sc, dtype=torch.float32) if sc else None))
         elif tag == 'circle':
             cx, cy, r = float(elem.get('cx', 0)), float(elem.get('cy', 0)), float(elem.get('r', 0))
             if r > 0:
+                stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
                 k = 0.5522847498
                 pts = [(cx, cy-r), (cx+k*r, cy-r), (cx+r, cy-k*r), (cx+r, cy),
                        (cx+r, cy+k*r), (cx+k*r, cy+r), (cx, cy+r),
                        (cx-k*r, cy+r), (cx-r, cy+k*r), (cx-r, cy),
                        (cx-r, cy-k*r), (cx-k*r, cy-r), (cx, cy-r)]
                 path = Path(torch.tensor([2,2,2,2], dtype=torch.int32),
-                           torch.tensor(pts, dtype=torch.float32), is_closed=True)
+                           torch.tensor(pts, dtype=torch.float32),
+                           stroke_width=stroke_width, is_closed=True)
                 shapes.append(path)
                 fc = _parse_color(fill_str)
+                sc = _parse_color(stroke_str)
                 shape_groups.append(ShapeGroup(
                     [len(shapes)-1],
-                    fill_color=torch.tensor(fc, dtype=torch.float32) if fc else None))
+                    fill_color=torch.tensor(fc, dtype=torch.float32) if fc else None,
+                    stroke_color=torch.tensor(sc, dtype=torch.float32) if sc else None))
+        elif tag == 'ellipse':
+            cx = float(elem.get('cx', 0))
+            cy = float(elem.get('cy', 0))
+            rx = float(elem.get('rx', 0))
+            ry = float(elem.get('ry', 0))
+            if rx > 0 and ry > 0:
+                stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
+                k = 0.5522847498  # Magic number for cubic bezier circle approximation
+                pts = [
+                    (cx, cy-ry), (cx+k*rx, cy-ry), (cx+rx, cy-k*ry), (cx+rx, cy),
+                    (cx+rx, cy+k*ry), (cx+k*rx, cy+ry), (cx, cy+ry),
+                    (cx-k*rx, cy+ry), (cx-rx, cy+k*ry), (cx-rx, cy),
+                    (cx-rx, cy-k*ry), (cx-k*rx, cy-ry), (cx, cy-ry)
+                ]
+                path = Path(torch.tensor([2,2,2,2], dtype=torch.int32),
+                           torch.tensor(pts, dtype=torch.float32),
+                           stroke_width=stroke_width, is_closed=True)
+                shapes.append(path)
+                fc = _parse_color(fill_str)
+                sc = _parse_color(stroke_str)
+                shape_groups.append(ShapeGroup(
+                    [len(shapes)-1],
+                    fill_color=torch.tensor(fc, dtype=torch.float32) if fc else None,
+                    stroke_color=torch.tensor(sc, dtype=torch.float32) if sc else None))
         elif tag in ('g', 'svg'):
             for child in elem:
                 process(child, fill_str)

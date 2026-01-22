@@ -585,11 +585,40 @@ def eval_cubic_bezier_py(t, p0, p1, p2, p3):
     )
 
 
-def closest_point_quadratic_bezier_py(pt, p0, p1, p2, num_samples=32):
-    """Python reference for closest point on quadratic Bezier (sampling approach)."""
+def _newton_refine_quadratic(pt, p0, p1, p2, t_init, num_iters=10):
+    """Newton refinement for closest point on quadratic bezier."""
+    t = t_init
+    for _ in range(num_iters):
+        # B(t) and B'(t)
+        bpt = eval_quadratic_bezier_py(t, p0, p1, p2)
+        # B'(t) = 2(1-t)(P1-P0) + 2t(P2-P1)
+        one_minus_t = 1.0 - t
+        dpx = 2.0 * (one_minus_t * (p1[0] - p0[0]) + t * (p2[0] - p1[0]))
+        dpy = 2.0 * (one_minus_t * (p1[1] - p0[1]) + t * (p2[1] - p1[1]))
+        # B''(t) = 2(P2 - 2P1 + P0)
+        ddpx = 2.0 * (p2[0] - 2*p1[0] + p0[0])
+        ddpy = 2.0 * (p2[1] - 2*p1[1] + p0[1])
+
+        # f(t) = (B(t) - pt) · B'(t)
+        dx = bpt[0] - pt[0]
+        dy = bpt[1] - pt[1]
+        f = dx * dpx + dy * dpy
+        # f'(t) = B'(t) · B'(t) + (B(t) - pt) · B''(t)
+        df = dpx * dpx + dpy * dpy + dx * ddpx + dy * ddpy
+
+        if abs(df) < 1e-10:
+            break
+        t_new = t - f / df
+        t = max(0.0, min(1.0, t_new))
+    return t
+
+
+def closest_point_quadratic_bezier_py(pt, p0, p1, p2, num_samples=16):
+    """Python reference for closest point on quadratic Bezier with Newton refinement."""
     best_t = 0.0
     best_dist_sq = float('inf')
 
+    # Coarse sampling to find initial guess
     for i in range(num_samples + 1):
         t = i / num_samples
         bpt = eval_quadratic_bezier_py(t, p0, p1, p2)
@@ -598,15 +627,58 @@ def closest_point_quadratic_bezier_py(pt, p0, p1, p2, num_samples=32):
             best_dist_sq = dist_sq
             best_t = t
 
+    # Newton refinement
+    best_t = _newton_refine_quadratic(pt, p0, p1, p2, best_t)
+
     closest = eval_quadratic_bezier_py(best_t, p0, p1, p2)
+    best_dist_sq = (closest[0] - pt[0])**2 + (closest[1] - pt[1])**2
     return closest, best_t, best_dist_sq
 
 
-def closest_point_cubic_bezier_py(pt, p0, p1, p2, p3, num_samples=32):
-    """Python reference for closest point on cubic Bezier (sampling approach)."""
+def _newton_refine_cubic(pt, p0, p1, p2, p3, t_init, num_iters=10):
+    """Newton refinement for closest point on cubic bezier."""
+    t = t_init
+    for _ in range(num_iters):
+        # B(t)
+        bpt = eval_cubic_bezier_py(t, p0, p1, p2, p3)
+        # B'(t) = 3(1-t)^2(P1-P0) + 6(1-t)t(P2-P1) + 3t^2(P3-P2)
+        one_minus_t = 1.0 - t
+        one_minus_t_sq = one_minus_t * one_minus_t
+        t_sq = t * t
+
+        d10 = (p1[0] - p0[0], p1[1] - p0[1])
+        d21 = (p2[0] - p1[0], p2[1] - p1[1])
+        d32 = (p3[0] - p2[0], p3[1] - p2[1])
+
+        dpx = 3.0 * one_minus_t_sq * d10[0] + 6.0 * one_minus_t * t * d21[0] + 3.0 * t_sq * d32[0]
+        dpy = 3.0 * one_minus_t_sq * d10[1] + 6.0 * one_minus_t * t * d21[1] + 3.0 * t_sq * d32[1]
+
+        # B''(t) = 6(1-t)(P2-2P1+P0) + 6t(P3-2P2+P1)
+        dd0 = (p2[0] - 2*p1[0] + p0[0], p2[1] - 2*p1[1] + p0[1])
+        dd1 = (p3[0] - 2*p2[0] + p1[0], p3[1] - 2*p2[1] + p1[1])
+        ddpx = 6.0 * one_minus_t * dd0[0] + 6.0 * t * dd1[0]
+        ddpy = 6.0 * one_minus_t * dd0[1] + 6.0 * t * dd1[1]
+
+        # f(t) = (B(t) - pt) · B'(t)
+        dx = bpt[0] - pt[0]
+        dy = bpt[1] - pt[1]
+        f = dx * dpx + dy * dpy
+        # f'(t) = B'(t) · B'(t) + (B(t) - pt) · B''(t)
+        df = dpx * dpx + dpy * dpy + dx * ddpx + dy * ddpy
+
+        if abs(df) < 1e-10:
+            break
+        t_new = t - f / df
+        t = max(0.0, min(1.0, t_new))
+    return t
+
+
+def closest_point_cubic_bezier_py(pt, p0, p1, p2, p3, num_samples=16):
+    """Python reference for closest point on cubic Bezier with Newton refinement."""
     best_t = 0.0
     best_dist_sq = float('inf')
 
+    # Coarse sampling to find initial guess
     for i in range(num_samples + 1):
         t = i / num_samples
         bpt = eval_cubic_bezier_py(t, p0, p1, p2, p3)
@@ -615,5 +687,9 @@ def closest_point_cubic_bezier_py(pt, p0, p1, p2, p3, num_samples=32):
             best_dist_sq = dist_sq
             best_t = t
 
+    # Newton refinement
+    best_t = _newton_refine_cubic(pt, p0, p1, p2, p3, best_t)
+
     closest = eval_cubic_bezier_py(best_t, p0, p1, p2, p3)
+    best_dist_sq = (closest[0] - pt[0])**2 + (closest[1] - pt[1])**2
     return closest, best_t, best_dist_sq
