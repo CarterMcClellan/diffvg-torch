@@ -1,40 +1,16 @@
 # diffvg-triton
 
-A fast, pure-Python reimplementation of [diffvg](https://github.com/BachiLi/diffvg) using Triton kernels. Achieves numerical parity with CairoSVG while being differentiable and optimized for batched GPU workloads.
+A fast, pure-Python reimplementation of [diffvg](https://github.com/BachiLi/diffvg) using Triton kernels. Differentiable and optimized for batched GPU workloads.
 
 ## Key Features
 
 - **Pure Python/Triton** - No C++ compilation, no custom CUDA kernels
 - **Batched rendering** - Efficient parallel rendering of multiple scenes
 - **Full gradient support** - Backpropagation through the rendering pipeline
-- **Cairo parity** - Matches CairoSVG output for fills, strokes, colors, and shapes
 
-## Cairo Parity
+## SVG Rendering
 
-Comparison against CairoSVG across various SVG features:
-
-![Cairo Parity](assets/cairo_parity.png)
-
-| Test Case | MAE | Status |
-|-----------|-----|--------|
-| Simple Triangle | 0.5 | PASS |
-| Red Rectangle | 0.2 | PASS |
-| Blue Circle | 0.4 | PASS |
-| Cubic Bezier | 0.5 | PASS |
-| Two Overlapping | 0.7 | PASS |
-| Star Shape | 0.2 | PASS |
-| Three Colors | 0.8 | PASS |
-| Fill + Stroke | 0.7 | PASS |
-
-*MAE on 0-255 scale. All tests < 1.0 MAE.*
-
-### Complex SVG Example
-
-Multi-layer SVG with circles, ellipses, paths, fills, strokes, and transparency:
-
-![Smiley Parity](assets/smiley_parity.png)
-
-*MAE: 1.09 - Nearly identical to Cairo rendering*
+![Smiley Rendering](assets/smiley_parity.png)
 
 ## Performance
 

@@ -128,24 +128,17 @@ class TestRendering:
 
     def test_render_empty_scene(self):
         """Test rendering with no shapes returns background."""
-        from diffvg_triton.scene import flatten_scene
-        from diffvg_triton.render import render_scene_py, RenderConfig
+        from diffvg_triton.render import render
 
-        scene = flatten_scene(
+        image = render(
             canvas_width=10,
             canvas_height=10,
             shapes=[],
             shape_groups=[],
-            device=torch.device('cpu'),
-        )
-
-        config = RenderConfig(
             num_samples_x=1,
             num_samples_y=1,
-            background_color=(1.0, 1.0, 1.0, 1.0),
+            background_color=torch.tensor([1.0, 1.0, 1.0, 1.0]),
         )
-
-        image = render_scene_py(scene, config)
 
         assert image.shape == (10, 10, 4)
         # Should be white background
@@ -153,8 +146,7 @@ class TestRendering:
 
     def test_render_filled_square(self):
         """Test rendering a filled square."""
-        from diffvg_triton.scene import flatten_scene
-        from diffvg_triton.render import render_scene_py, RenderConfig
+        from diffvg_triton.render import render
 
         # Create a square that covers pixels (2,2) to (7,7)
         path = MockPath(
@@ -167,21 +159,15 @@ class TestRendering:
             fill_color=[1.0, 0.0, 0.0, 1.0],  # Red
         )
 
-        scene = flatten_scene(
+        image = render(
             canvas_width=10,
             canvas_height=10,
             shapes=[path],
             shape_groups=[group],
-            device=torch.device('cpu'),
-        )
-
-        config = RenderConfig(
             num_samples_x=1,
             num_samples_y=1,
-            background_color=(1.0, 1.0, 1.0, 1.0),
+            background_color=torch.tensor([1.0, 1.0, 1.0, 1.0]),
         )
-
-        image = render_scene_py(scene, config)
 
         assert image.shape == (10, 10, 4)
 
@@ -196,40 +182,6 @@ class TestRendering:
         assert corner_pixel[0] > 0.9
         assert corner_pixel[1] > 0.9
         assert corner_pixel[2] > 0.9
-
-    @pytest.mark.skip(reason="Slow test, run manually")
-    def test_render_larger_image(self):
-        """Test rendering a larger image."""
-        from diffvg_triton.scene import flatten_scene
-        from diffvg_triton.render import render_scene_py, RenderConfig
-
-        path = MockPath(
-            points=[[20, 20], [80, 20], [80, 80], [20, 80]],
-            num_control_points=[0, 0, 0, 0],
-            is_closed=True,
-        )
-        group = MockShapeGroup(
-            shape_ids=[0],
-            fill_color=[0.0, 1.0, 0.0, 1.0],  # Green
-        )
-
-        scene = flatten_scene(
-            canvas_width=100,
-            canvas_height=100,
-            shapes=[path],
-            shape_groups=[group],
-            device=torch.device('cpu'),
-        )
-
-        config = RenderConfig(
-            num_samples_x=2,
-            num_samples_y=2,
-            background_color=(0.5, 0.5, 0.5, 1.0),
-        )
-
-        image = render_scene_py(scene, config)
-
-        assert image.shape == (100, 100, 4)
 
 
 class TestHighLevelAPI:
@@ -259,75 +211,6 @@ class TestHighLevelAPI:
         )
 
         assert image.shape == (20, 20, 4)
-
-    def test_differentiable_renderer(self):
-        """Test the DifferentiableRenderer class."""
-        from diffvg_triton.autograd import DifferentiableRenderer
-
-        renderer = DifferentiableRenderer(
-            canvas_width=20,
-            canvas_height=20,
-            num_samples_x=1,
-            num_samples_y=1,
-        )
-
-        path = MockPath(
-            points=[[5, 5], [15, 5], [15, 15], [5, 15]],
-            num_control_points=[0, 0, 0, 0],
-            is_closed=True,
-        )
-        group = MockShapeGroup(
-            shape_ids=[0],
-            fill_color=[0.0, 1.0, 1.0, 1.0],  # Cyan
-        )
-
-        image = renderer.render([path], [group])
-
-        assert image.shape == (20, 20, 4)
-
-
-class TestGradients:
-    """Tests for gradient computation."""
-
-    @pytest.mark.skip(reason="Gradient computation needs more work")
-    def test_color_gradient(self):
-        """Test that gradients flow to color parameters."""
-        from diffvg_triton.autograd import render_grad
-
-        # Create path with requires_grad color
-        path = MockPath(
-            points=[[5, 5], [15, 5], [15, 15], [5, 15]],
-            num_control_points=[0, 0, 0, 0],
-            is_closed=True,
-        )
-
-        fill_color = torch.tensor([1.0, 0.0, 0.0, 1.0], requires_grad=True)
-
-        # Mock group with gradient-enabled color
-        group = MockShapeGroup(
-            shape_ids=[0],
-            fill_color=fill_color.tolist(),
-        )
-        group.fill_color = fill_color  # Override with tensor
-
-        image = render_grad(
-            canvas_width=20,
-            canvas_height=20,
-            shapes=[path],
-            shape_groups=[group],
-            num_samples_x=1,
-            num_samples_y=1,
-        )
-
-        # Create a simple loss
-        target = torch.zeros_like(image)
-        loss = (image - target).pow(2).mean()
-
-        # Backward should work without error
-        loss.backward()
-
-        # Color gradient should exist
-        assert fill_color.grad is not None
 
 
 if __name__ == '__main__':

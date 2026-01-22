@@ -6,18 +6,17 @@ This is a standalone module that can be used independently of the original diffv
 
 Key components:
 - scene: Scene flattening (convert shapes to GPU-friendly tensors)
-- render: Main rendering pipeline
-- autograd: PyTorch autograd integration for differentiable rendering
-- kernels: Low-level Triton kernels for rendering operations
+- render: Main rendering pipeline (SVG rendering)
+- render_batch: Batched rendering for training (fully differentiable)
 
 Usage:
-    from diffvg_triton import render, render_grad
+    from diffvg_triton import render, render_batch_fast
 
-    # Non-differentiable rendering
+    # SVG rendering
     image = render(width, height, shapes, shape_groups)
 
-    # Differentiable rendering (gradients flow to shape parameters)
-    image = render_grad(width, height, shapes, shape_groups)
+    # Batched differentiable rendering (for training)
+    images = render_batch_fast(width, height, control_points, stroke_widths, alphas)
 """
 
 from .scene import (
@@ -33,21 +32,10 @@ from .scene import (
 from .render import (
     RenderMode,
     RenderConfig,
-    render_scene,
-    render_scene_py,
     render,
 )
 
-from .autograd import (
-    GradientConfig,
-    TritonRenderFunction,
-    render_grad,
-    DifferentiableRenderer,
-)
-
 from .render_batch import (
-    render_batch,
-    render_batch_triton,
     render_batch_fast,
 )
 
@@ -63,7 +51,6 @@ from .io import (
     imwrite,
 )
 
-from .render_pytorch import render_pytorch
 
 
 __all__ = [
@@ -78,17 +65,8 @@ __all__ = [
     # Render
     'RenderMode',
     'RenderConfig',
-    'render_scene',
-    'render_scene_py',
     'render',
-    # Autograd
-    'GradientConfig',
-    'TritonRenderFunction',
-    'render_grad',
-    'DifferentiableRenderer',
     # Batched rendering
-    'render_batch',
-    'render_batch_triton',
     'render_batch_fast',
     # SVG utilities
     'Path',
@@ -98,8 +76,6 @@ __all__ = [
     # I/O utilities
     'get_device',
     'imwrite',
-    # PyTorch differentiable renderer
-    'render_pytorch',
 ]
 
 

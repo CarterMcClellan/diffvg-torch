@@ -57,7 +57,7 @@ def main(args):
             group.fill_color = group.fill_color.to(device)
 
     # Initial render
-    img = diffvg_triton.render_pytorch(canvas_width, canvas_height, shapes, shape_groups)
+    img = diffvg_triton.render(canvas_width, canvas_height, shapes, shape_groups)
     diffvg_triton.imwrite(img.cpu(), f'{output_dir}/init.png', gamma=gamma)
 
     # Setup optimization
@@ -83,8 +83,8 @@ def main(args):
         if color_optim:
             color_optim.zero_grad()
 
-        # Render (using PyTorch renderer for differentiability)
-        img = diffvg_triton.render_pytorch(canvas_width, canvas_height, shapes, shape_groups)
+        # Render
+        img = diffvg_triton.render(canvas_width, canvas_height, shapes, shape_groups)
 
         # Composite with white background
         img = img[:, :, 3:4] * img[:, :, :3] + (1 - img[:, :, 3:4])
@@ -113,7 +113,7 @@ def main(args):
                                    canvas_width, canvas_height, shapes, shape_groups)
 
     # Final render
-    img = diffvg_triton.render_pytorch(canvas_width, canvas_height, shapes, shape_groups)
+    img = diffvg_triton.render(canvas_width, canvas_height, shapes, shape_groups)
     diffvg_triton.imwrite(img.cpu(), f'{output_dir}/final.png', gamma=gamma)
 
     # Create video
