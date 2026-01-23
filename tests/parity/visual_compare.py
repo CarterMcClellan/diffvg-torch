@@ -5,8 +5,8 @@ import sys
 sys.path.insert(0, '/workspace')
 
 import torch
-from diffvg_triton.scene import flatten_scene
-from diffvg_triton.render import render_scene_py, RenderConfig
+from diffvg_torch.scene import flatten_scene
+from diffvg_torch.render import render_scene_py, RenderConfig
 
 
 def log(msg):
@@ -33,7 +33,7 @@ class MockShapeGroup:
 
 def main():
     log("="*60)
-    log("VISUAL COMPARISON - TRITON OUTPUT")
+    log("VISUAL COMPARISON - TORCH OUTPUT")
     log("="*60)
 
     # Same cubic bezier - OPEN path

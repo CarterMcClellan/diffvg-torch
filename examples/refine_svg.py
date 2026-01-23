@@ -19,13 +19,13 @@ import torch
 import numpy as np
 from PIL import Image
 
-import diffvg_triton
+import diffvg_torch
 
 gamma = 1.0
 
 
 def main(args):
-    device = diffvg_triton.get_device()
+    device = diffvg_torch.get_device()
     print(f'Using device: {device}')
 
     # Create output directory
@@ -46,7 +46,7 @@ def main(args):
     target = target.pow(gamma).to(device).unsqueeze(0).permute(0, 3, 1, 2)
 
     # Load SVG
-    canvas_width, canvas_height, shapes, shape_groups = diffvg_triton.svg_to_scene(args.svg)
+    canvas_width, canvas_height, shapes, shape_groups = diffvg_torch.svg_to_scene(args.svg)
 
     # Move to device
     for shape in shapes:
@@ -57,8 +57,8 @@ def main(args):
             group.fill_color = group.fill_color.to(device)
 
     # Initial render
-    img = diffvg_triton.render(canvas_width, canvas_height, shapes, shape_groups)
-    diffvg_triton.imwrite(img.cpu(), f'{output_dir}/init.png', gamma=gamma)
+    img = diffvg_torch.render(canvas_width, canvas_height, shapes, shape_groups)
+    diffvg_torch.imwrite(img.cpu(), f'{output_dir}/init.png', gamma=gamma)
 
     # Setup optimization
     points_vars = []
@@ -84,12 +84,12 @@ def main(args):
             color_optim.zero_grad()
 
         # Render
-        img = diffvg_triton.render(canvas_width, canvas_height, shapes, shape_groups)
+        img = diffvg_torch.render(canvas_width, canvas_height, shapes, shape_groups)
 
         # Composite with white background
         img = img[:, :, 3:4] * img[:, :, :3] + (1 - img[:, :, 3:4])
 
-        diffvg_triton.imwrite(img.cpu(), f'{output_dir}/iter_{t}.png', gamma=gamma)
+        diffvg_torch.imwrite(img.cpu(), f'{output_dir}/iter_{t}.png', gamma=gamma)
 
         # Compute loss
         img = img.unsqueeze(0).permute(0, 3, 1, 2)
@@ -109,12 +109,12 @@ def main(args):
                     group.fill_color.data.clamp_(0.0, 1.0)
 
         if t % 10 == 0 or t == args.num_iter - 1:
-            diffvg_triton.save_svg(f'{output_dir}/iter_{t}.svg',
+            diffvg_torch.save_svg(f'{output_dir}/iter_{t}.svg',
                                    canvas_width, canvas_height, shapes, shape_groups)
 
     # Final render
-    img = diffvg_triton.render(canvas_width, canvas_height, shapes, shape_groups)
-    diffvg_triton.imwrite(img.cpu(), f'{output_dir}/final.png', gamma=gamma)
+    img = diffvg_torch.render(canvas_width, canvas_height, shapes, shape_groups)
+    diffvg_torch.imwrite(img.cpu(), f'{output_dir}/final.png', gamma=gamma)
 
     # Create video
     from subprocess import call

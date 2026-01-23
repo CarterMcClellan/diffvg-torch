@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Debug why stroke is not rendering in diffvg-triton."""
+"""Debug why stroke is not rendering in diffvg-torch."""
 
 import sys
 sys.path.insert(0, '/workspace')
@@ -8,8 +8,8 @@ import torch
 import numpy as np
 import json
 
-from diffvg_triton.scene import flatten_scene, ShapeType
-from diffvg_triton.render import render_scene_py, RenderConfig, _compute_closest_distance_py
+from diffvg_torch.scene import flatten_scene, ShapeType
+from diffvg_torch.render import render_scene_py, RenderConfig, _compute_closest_distance_py
 
 
 def log(msg):

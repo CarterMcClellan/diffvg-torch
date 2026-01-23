@@ -18,12 +18,13 @@ A fast, pure-PyTorch reimplementation of [diffvg](https://github.com/BachiLi/dif
 
 ### Batched Rendering (render_batch_fast)
 
+28x28 canvas, 1 path, 3 segments:
+
 | Batch Size | Total Time | Per Image |
 |------------|------------|-----------|
-| 1 | 2.0ms | 2.0ms |
-| 4 | 7.6ms | 1.9ms |
-| 16 | 41.3ms | 2.6ms |
-| 64 | 176.9ms | 2.8ms |
+| 8 | 2ms | 0.2ms |
+| 32 | 4ms | 0.1ms |
+| 64 | 7ms | 0.1ms |
 
 ### Backward Pass Speedup vs pydiffvg
 
@@ -51,7 +52,7 @@ pip install -e .
 ## Quick Start
 
 ```python
-from diffvg_triton import render_batch_fast
+from diffvg_torch import render_batch_fast
 
 # Render batched bezier paths
 # control_points: [B, num_paths, num_segments, 4, 2]
@@ -72,7 +73,7 @@ output = render_batch_fast(
 ### SVG File Rendering
 
 ```python
-from diffvg_triton import render, svg_to_scene
+from diffvg_torch import render, svg_to_scene
 import torch
 
 canvas_w, canvas_h, shapes, shape_groups = svg_to_scene("input.svg")

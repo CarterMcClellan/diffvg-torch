@@ -1,5 +1,5 @@
 """
-I/O utilities for diffvg_triton.
+I/O utilities for diffvg_torch.
 """
 
 import torch

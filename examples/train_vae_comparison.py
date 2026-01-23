@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Train and compare three VAE architectures on MNIST using diffvg_triton:
+Train and compare three VAE architectures on MNIST using diffvg_torch:
 1. Vanilla VAE - standard fixed-point VAE
 2. Adaptive Complexity VAE - learned importance weights per point
 3. Hierarchical VAE - coarse-to-fine refinement
 
-All models use the diffvg_triton renderer for SVG-based output.
+All models use the diffvg_torch renderer for SVG-based output.
 
 Usage:
     python examples/train_vae_comparison.py --num_epochs 10
@@ -24,8 +24,8 @@ from torch.utils.data import DataLoader
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
-# Import diffvg_triton renderer
-from diffvg_triton.render_batch import render_batch_fast
+# Import diffvg_torch renderer
+from diffvg_torch.render_batch import render_batch_fast
 
 try:
     from PIL import Image, ImageDraw
@@ -63,7 +63,7 @@ class SharedEncoder(nn.Module):
 
 def render_points_to_image(control_points, widths, alphas, canvas_size=28):
     """
-    Render control points using diffvg_triton.
+    Render control points using diffvg_torch.
 
     Args:
         control_points: [B, P, S, 4, 2] bezier control points

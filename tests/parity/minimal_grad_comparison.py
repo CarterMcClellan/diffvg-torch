@@ -54,7 +54,7 @@ def main():
     stats = {'backend': BACKEND}
 
     if BACKEND == "triton":
-        from diffvg_triton.render_batch import render_batch_fast
+        from diffvg_torch.render_batch import render_batch_fast
 
         stroke_widths = th.tensor([[stroke_width]], device=device, requires_grad=True)
         alphas = th.tensor([[alpha]], device=device, requires_grad=True)

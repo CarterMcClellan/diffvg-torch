@@ -7,8 +7,8 @@ sys.path.insert(0, '/workspace')
 import torch
 import json
 
-from diffvg_triton.scene import flatten_scene
-from diffvg_triton.render import _compute_winding_number_py, _compute_closest_distance_py
+from diffvg_torch.scene import flatten_scene
+from diffvg_torch.render import _compute_winding_number_py, _compute_closest_distance_py
 
 
 def log(msg):

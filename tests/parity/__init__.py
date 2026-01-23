@@ -1,1 +1,1 @@
-"""Tests for the Triton backend."""
+"""Tests for the PyTorch backend."""

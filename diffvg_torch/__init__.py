@@ -1,7 +1,7 @@
 """
-diffvg_triton - Differentiable Vector Graphics with Triton
+diffvg_torch - Differentiable Vector Graphics with PyTorch
 
-A pure Python/Triton implementation of differentiable vector graphics rendering.
+A pure Python/PyTorch implementation of differentiable vector graphics rendering.
 This is a standalone module that can be used independently of the original diffvg.
 
 Key components:
@@ -10,7 +10,7 @@ Key components:
 - render_batch: Batched rendering for training (fully differentiable)
 
 Usage:
-    from diffvg_triton import render, render_batch_fast
+    from diffvg_torch import render, render_batch_fast
 
     # SVG rendering
     image = render(width, height, shapes, shape_groups)
@@ -81,4 +81,4 @@ __all__ = [
 
 # Version info
 __version__ = '0.1.0'
-__backend__ = 'triton'
+__backend__ = 'torch'

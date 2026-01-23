@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Direct comparison of MNIST VAE rendering for diffvg-triton.
+Direct comparison of MNIST VAE rendering for diffvg-torch.
 
-Loads the same test parameters saved by pydiffvg test and renders with triton.
+Loads the same test parameters saved by pydiffvg test and renders with torch.
 """
 
 import sys
@@ -13,8 +13,8 @@ import numpy as np
 import json
 import os
 
-from diffvg_triton.scene import flatten_scene
-from diffvg_triton.render import render_scene_py, RenderConfig
+from diffvg_torch.scene import flatten_scene
+from diffvg_torch.render import render_scene_py, RenderConfig
 
 
 def log(msg):
@@ -22,7 +22,7 @@ def log(msg):
 
 
 class MockPath:
-    """Mock Path for diffvg-triton."""
+    """Mock Path for diffvg-torch."""
     def __init__(self, points, num_control_points, is_closed, stroke_width):
         self.points = points
         self.num_control_points = num_control_points
@@ -32,7 +32,7 @@ class MockPath:
 
 
 class MockShapeGroup:
-    """Mock ShapeGroup for diffvg-triton."""
+    """Mock ShapeGroup for diffvg-torch."""
     def __init__(self, shape_ids, fill_color, stroke_color):
         self.shape_ids = shape_ids if isinstance(shape_ids, torch.Tensor) else torch.tensor(shape_ids, dtype=torch.int32)
         self.fill_color = fill_color
@@ -41,7 +41,7 @@ class MockShapeGroup:
         self.shape_to_canvas = None
 
 
-def create_mnist_vae_scene_triton(points, stroke_width, alpha, num_segments):
+def create_mnist_vae_scene_torch(points, stroke_width, alpha, num_segments):
     """Create scene exactly as mnist_vae.py does for triton."""
     num_ctrl_pts = torch.zeros(num_segments, dtype=torch.int32) + 2  # All cubic
 
@@ -63,8 +63,8 @@ def create_mnist_vae_scene_triton(points, stroke_width, alpha, num_segments):
     return [path], [path_group]
 
 
-def render_triton(shapes, groups, width, height, num_samples=4):
-    """Render using diffvg-triton."""
+def render_torch(shapes, groups, width, height, num_samples=4):
+    """Render using diffvg-torch."""
     device = torch.device('cpu')
     scene = flatten_scene(width, height, shapes, groups, device=device)
 
@@ -78,7 +78,7 @@ def render_triton(shapes, groups, width, height, num_samples=4):
     return img
 
 
-def process_triton_output(img, imsize):
+def process_torch_output(img, imsize):
     """Process output exactly as pydiffvg version does."""
     # Torch format, discard alpha, make gray
     out = img.permute(2, 0, 1).view(4, imsize, imsize)[:3].mean(0, keepdim=True)
@@ -89,7 +89,7 @@ def process_triton_output(img, imsize):
 
 def main():
     log("="*60)
-    log("MNIST VAE PARITY TEST - DIFFVG-TRITON")
+    log("MNIST VAE PARITY TEST - DIFFVG-TORCH")
     log("="*60)
 
     # Load test parameters from pydiffvg test
@@ -119,11 +119,11 @@ def main():
     log(f"  points shape: {points.shape}")
 
     # Create and render
-    shapes, groups = create_mnist_vae_scene_triton(points, stroke_width, alpha, num_segments)
+    shapes, groups = create_mnist_vae_scene_torch(points, stroke_width, alpha, num_segments)
 
-    log("\nRendering with diffvg-triton...")
-    raw_img = render_triton(shapes, groups, imsize, imsize, num_samples)
-    processed = process_triton_output(raw_img.detach(), imsize)
+    log("\nRendering with diffvg-torch...")
+    raw_img = render_torch(shapes, groups, imsize, imsize, num_samples)
+    processed = process_torch_output(raw_img.detach(), imsize)
 
     log(f"  Raw output shape: {raw_img.shape}")
     log(f"  Processed output shape: {processed.shape}")
@@ -147,8 +147,8 @@ def main():
         log(f"  y={y:2d}: {row}")
 
     # Save results
-    np.save(f"{input_dir}/mnist_triton_raw.npy", raw_img.numpy())
-    np.save(f"{input_dir}/mnist_triton_processed.npy", processed.numpy())
+    np.save(f"{input_dir}/mnist_torch_raw.npy", raw_img.numpy())
+    np.save(f"{input_dir}/mnist_torch_processed.npy", processed.numpy())
 
     log(f"\nSaved results to {input_dir}/")
 
@@ -166,9 +166,9 @@ def main():
         log("="*60)
 
         pydiffvg_proc = np.load(pydiffvg_file)
-        triton_proc = processed.numpy()
+        torch_proc = processed.numpy()
 
-        diff = np.abs(pydiffvg_proc - triton_proc)
+        diff = np.abs(pydiffvg_proc - torch_proc)
         log(f"\nProcessed output difference:")
         log(f"  Max diff: {diff.max():.4f}")
         log(f"  Mean diff: {diff.mean():.4f}")

@@ -1,5 +1,5 @@
 """
-Scene representation for the Triton backend.
+Scene representation for the PyTorch backend.
 
 Converts pydiffvg shapes into flattened tensor representation suitable for
 Triton kernel processing.
@@ -129,7 +129,7 @@ class FlattenedShapeGroup:
 @dataclass
 class FlattenedScene:
     """
-    Complete flattened scene representation for Triton rendering.
+    Complete flattened scene representation for PyTorch rendering.
 
     Contains all shapes flattened into GPU-friendly tensors.
     """
@@ -441,7 +441,7 @@ def flatten_scene(
     device: torch.device = None,
 ) -> FlattenedScene:
     """
-    Convert pydiffvg scene into FlattenedScene for Triton rendering.
+    Convert pydiffvg scene into FlattenedScene for PyTorch rendering.
 
     Args:
         canvas_width: Width of output image
@@ -451,7 +451,7 @@ def flatten_scene(
         device: Target device
 
     Returns:
-        FlattenedScene ready for Triton kernels
+        FlattenedScene ready for PyTorch operations
     """
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

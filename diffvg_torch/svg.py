@@ -1,5 +1,5 @@
 """
-SVG parsing and saving utilities for diffvg_triton.
+SVG parsing and saving utilities for diffvg_torch.
 
 Provides functions to load SVG files into shapes/shape_groups and
 save them back to SVG format.
@@ -215,6 +215,64 @@ def _parse_color(color_str: str) -> Optional[Tuple[float, float, float, float]]:
     return colors.get(color_str.lower(), (0, 0, 0, 1))
 
 
+def _parse_transform(transform_str: str) -> Optional[Tuple[float, float, float, float, float, float]]:
+    """Parse SVG transform attribute and return (a, b, c, d, e, f) matrix coefficients.
+
+    Transform applies as: x' = a*x + c*y + e, y' = b*x + d*y + f
+    """
+    if not transform_str:
+        return None
+
+    # Handle matrix(a,b,c,d,e,f)
+    m = re.match(r'matrix\s*\(\s*([^)]+)\s*\)', transform_str)
+    if m:
+        vals = [float(x) for x in re.split(r'[\s,]+', m.group(1).strip())]
+        if len(vals) >= 6:
+            return tuple(vals[:6])
+
+    # Handle translate(tx, ty)
+    m = re.match(r'translate\s*\(\s*([^)]+)\s*\)', transform_str)
+    if m:
+        vals = [float(x) for x in re.split(r'[\s,]+', m.group(1).strip())]
+        tx = vals[0]
+        ty = vals[1] if len(vals) > 1 else 0
+        return (1, 0, 0, 1, tx, ty)
+
+    # Handle scale(sx, sy)
+    m = re.match(r'scale\s*\(\s*([^)]+)\s*\)', transform_str)
+    if m:
+        vals = [float(x) for x in re.split(r'[\s,]+', m.group(1).strip())]
+        sx = vals[0]
+        sy = vals[1] if len(vals) > 1 else sx
+        return (sx, 0, 0, sy, 0, 0)
+
+    return None
+
+
+def _apply_transform(points: List[Tuple[float, float]], transform: Tuple[float, float, float, float, float, float]) -> List[Tuple[float, float]]:
+    """Apply transform matrix to points."""
+    a, b, c, d, e, f = transform
+    return [(a * x + c * y + e, b * x + d * y + f) for x, y in points]
+
+
+def _compose_transforms(t1: Optional[Tuple], t2: Optional[Tuple]) -> Optional[Tuple]:
+    """Compose two transforms: result = t2 * t1 (t1 applied first, then t2)."""
+    if t1 is None:
+        return t2
+    if t2 is None:
+        return t1
+    a1, b1, c1, d1, e1, f1 = t1
+    a2, b2, c2, d2, e2, f2 = t2
+    return (
+        a2 * a1 + c2 * b1,
+        b2 * a1 + d2 * b1,
+        a2 * c1 + c2 * d1,
+        b2 * c1 + d2 * d1,
+        a2 * e1 + c2 * f1 + e2,
+        b2 * e1 + d2 * f1 + f2,
+    )
+
+
 def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]:
     """Load SVG file and convert to shapes/shape_groups."""
     tree = ET.parse(svg_path)
@@ -244,18 +302,31 @@ def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]
                 if k.strip() == attr: return v.strip()
         return default
 
-    def process(elem, inherited_fill=None):
+    def process(elem, inherited_fill=None, inherited_stroke=None, inherited_stroke_width=None, inherited_transform=None):
         nonlocal shapes, shape_groups
         fill_str = get_attr(elem, 'fill', inherited_fill)
-        stroke_str = get_attr(elem, 'stroke')
+        stroke_str = get_attr(elem, 'stroke', inherited_stroke)
+        stroke_width_str = get_attr(elem, 'stroke-width', inherited_stroke_width)
         tag = elem.tag.split('}')[-1]
+
+        # Parse and compose transforms
+        elem_transform = _parse_transform(elem.get('transform'))
+        current_transform = _compose_transforms(elem_transform, inherited_transform)
 
         if tag == 'path':
             d = elem.get('d', '')
             if d:
                 num_ctrl, pts = _parse_path_d(d)
                 if len(pts) >= 2:
-                    stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
+                    # Apply transform to points
+                    if current_transform:
+                        pts = _apply_transform(pts, current_transform)
+                    stroke_width = float(stroke_width_str or '1.0')
+                    # Scale stroke width by average scale factor
+                    if current_transform:
+                        a, b, c, d_val, e, f = current_transform
+                        scale = (abs(a) + abs(d_val)) / 2
+                        stroke_width *= scale
                     path = Path(torch.tensor(num_ctrl, dtype=torch.int32),
                                torch.tensor(pts, dtype=torch.float32),
                                stroke_width=stroke_width,
@@ -271,8 +342,13 @@ def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]
             x, y = float(elem.get('x', 0)), float(elem.get('y', 0))
             w, h = float(elem.get('width', 0)), float(elem.get('height', 0))
             if w > 0 and h > 0:
-                stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
+                stroke_width = float(stroke_width_str or '1.0')
                 pts = [(x,y), (x+w,y), (x+w,y+h), (x,y+h), (x,y)]
+                if current_transform:
+                    pts = _apply_transform(pts, current_transform)
+                    a, b, c, d_val, e, f = current_transform
+                    scale = (abs(a) + abs(d_val)) / 2
+                    stroke_width *= scale
                 path = Path(torch.tensor([0,0,0,0], dtype=torch.int32),
                            torch.tensor(pts, dtype=torch.float32),
                            stroke_width=stroke_width, is_closed=True)
@@ -286,12 +362,17 @@ def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]
         elif tag == 'circle':
             cx, cy, r = float(elem.get('cx', 0)), float(elem.get('cy', 0)), float(elem.get('r', 0))
             if r > 0:
-                stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
+                stroke_width = float(stroke_width_str or '1.0')
                 k = 0.5522847498
                 pts = [(cx, cy-r), (cx+k*r, cy-r), (cx+r, cy-k*r), (cx+r, cy),
                        (cx+r, cy+k*r), (cx+k*r, cy+r), (cx, cy+r),
                        (cx-k*r, cy+r), (cx-r, cy+k*r), (cx-r, cy),
                        (cx-r, cy-k*r), (cx-k*r, cy-r), (cx, cy-r)]
+                if current_transform:
+                    pts = _apply_transform(pts, current_transform)
+                    a, b, c, d_val, e, f = current_transform
+                    scale = (abs(a) + abs(d_val)) / 2
+                    stroke_width *= scale
                 path = Path(torch.tensor([2,2,2,2], dtype=torch.int32),
                            torch.tensor(pts, dtype=torch.float32),
                            stroke_width=stroke_width, is_closed=True)
@@ -308,7 +389,7 @@ def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]
             rx = float(elem.get('rx', 0))
             ry = float(elem.get('ry', 0))
             if rx > 0 and ry > 0:
-                stroke_width = float(get_attr(elem, 'stroke-width', '1.0') or '1.0')
+                stroke_width = float(stroke_width_str or '1.0')
                 k = 0.5522847498  # Magic number for cubic bezier circle approximation
                 pts = [
                     (cx, cy-ry), (cx+k*rx, cy-ry), (cx+rx, cy-k*ry), (cx+rx, cy),
@@ -316,6 +397,11 @@ def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]
                     (cx-k*rx, cy+ry), (cx-rx, cy+k*ry), (cx-rx, cy),
                     (cx-rx, cy-k*ry), (cx-k*rx, cy-ry), (cx, cy-ry)
                 ]
+                if current_transform:
+                    pts = _apply_transform(pts, current_transform)
+                    a, b, c, d_val, e, f = current_transform
+                    scale = (abs(a) + abs(d_val)) / 2
+                    stroke_width *= scale
                 path = Path(torch.tensor([2,2,2,2], dtype=torch.int32),
                            torch.tensor(pts, dtype=torch.float32),
                            stroke_width=stroke_width, is_closed=True)
@@ -328,7 +414,7 @@ def svg_to_scene(svg_path: str) -> Tuple[int, int, List[Path], List[ShapeGroup]]
                     stroke_color=torch.tensor(sc, dtype=torch.float32) if sc else None))
         elif tag in ('g', 'svg'):
             for child in elem:
-                process(child, fill_str)
+                process(child, fill_str, stroke_str, stroke_width_str, current_transform)
 
     process(root)
     return canvas_width, canvas_height, shapes, shape_groups

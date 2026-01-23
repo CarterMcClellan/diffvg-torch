@@ -1,7 +1,7 @@
 """
-Parity tests comparing diffvg-triton output against reference pydiffvg.
+Parity tests comparing diffvg-torch output against reference pydiffvg.
 
-These tests validate that diffvg-triton produces equivalent rendering results
+These tests validate that diffvg-torch produces equivalent rendering results
 to the original diffvg implementation.
 """
 
@@ -29,9 +29,9 @@ def create_circle_scene_diffvg():
     return [circle], [circle_group]
 
 
-def create_circle_scene_triton():
-    """Create equivalent circle scene for diffvg-triton."""
-    # diffvg-triton doesn't have Circle primitive directly
+def create_circle_scene_torch():
+    """Create equivalent circle scene for diffvg-torch."""
+    # diffvg-torch doesn't have Circle primitive directly
     # We need to approximate with a path, or add Circle support
     # For now, test with paths
     pass
@@ -89,7 +89,7 @@ def render_diffvg(shapes, shape_groups, width=256, height=256, num_samples=2):
 
 
 class MockPath:
-    """Mock Path for diffvg-triton testing."""
+    """Mock Path for diffvg-torch testing."""
     def __init__(self, points, num_control_points, is_closed=True, stroke_width=1.0):
         self.points = torch.tensor(points, dtype=torch.float32)
         self.num_control_points = torch.tensor(num_control_points, dtype=torch.int32)
@@ -99,7 +99,7 @@ class MockPath:
 
 
 class MockShapeGroup:
-    """Mock ShapeGroup for diffvg-triton testing."""
+    """Mock ShapeGroup for diffvg-torch testing."""
     def __init__(self, shape_ids, fill_color=None, stroke_color=None, use_even_odd_rule=True):
         self.shape_ids = torch.tensor(shape_ids, dtype=torch.int32)
         self.fill_color = torch.tensor(fill_color, dtype=torch.float32) if fill_color else None
@@ -108,8 +108,8 @@ class MockShapeGroup:
         self.shape_to_canvas = None
 
 
-def create_path_scene_triton():
-    """Create equivalent path scene for diffvg-triton."""
+def create_path_scene_torch():
+    """Create equivalent path scene for diffvg-torch."""
     points = [
         [50.0, 50.0],
         [200.0, 50.0],
@@ -132,9 +132,9 @@ def create_path_scene_triton():
     return [path], [path_group]
 
 
-def render_triton(shapes, shape_groups, width=256, height=256, num_samples=2):
-    """Render using diffvg-triton."""
-    from diffvg_triton.render import render
+def render_torch(shapes, shape_groups, width=256, height=256, num_samples=2):
+    """Render using diffvg-torch."""
+    from diffvg_torch.render import render
 
     img = render(
         canvas_width=width,
@@ -155,9 +155,9 @@ class TestParityFilled:
 
     def test_filled_square_center_color(self):
         """Test that center pixel of filled square has correct color."""
-        shapes, groups = create_path_scene_triton()
+        shapes, groups = create_path_scene_torch()
 
-        img = render_triton(shapes, groups, width=256, height=256, num_samples=1)
+        img = render_torch(shapes, groups, width=256, height=256, num_samples=1)
 
         # Check center of the square (should be green)
         center_pixel = img[125, 125]  # Center of square at (50-200, 50-200)
@@ -168,9 +168,9 @@ class TestParityFilled:
 
     def test_filled_square_outside_is_background(self):
         """Test that pixels outside square are background color."""
-        shapes, groups = create_path_scene_triton()
+        shapes, groups = create_path_scene_torch()
 
-        img = render_triton(shapes, groups, width=256, height=256, num_samples=1)
+        img = render_torch(shapes, groups, width=256, height=256, num_samples=1)
 
         # Check corner (should be white background)
         corner_pixel = img[10, 10]
@@ -206,7 +206,7 @@ class TestParityStroked:
             stroke_color=[0.0, 0.0, 0.0, 1.0]  # Black stroke
         )
 
-        img = render_triton([path], [group], width=256, height=256, num_samples=2)
+        img = render_torch([path], [group], width=256, height=256, num_samples=2)
 
         # Check that stroke is visible somewhere on the first segment
         # The stroke goes from (50, 128) to (100, 50)
@@ -244,7 +244,7 @@ class TestParityCurved:
             stroke_color=[1.0, 0.0, 0.0, 1.0]  # Red stroke
         )
 
-        img = render_triton([path], [group], width=256, height=256, num_samples=2)
+        img = render_torch([path], [group], width=256, height=256, num_samples=2)
 
         # The apex of the curve should be around (128, ~125) depending on curve
         # Check that there's color variation (stroke visible)
@@ -278,7 +278,7 @@ class TestParityCurved:
             stroke_color=[0.0, 0.0, 1.0, 1.0]  # Blue stroke
         )
 
-        img = render_triton([path], [group], width=256, height=256, num_samples=2)
+        img = render_torch([path], [group], width=256, height=256, num_samples=2)
 
         # Check for blue pixels in the curve area
         curve_area = img[50:150, 50:210]
@@ -311,10 +311,10 @@ class TestParityAntiAliasing:
         )
 
         # Render with 1 sample (no AA)
-        img_1 = render_triton([path], [group], width=256, height=256, num_samples=1)
+        img_1 = render_torch([path], [group], width=256, height=256, num_samples=1)
 
         # Render with 4 samples (AA)
-        img_4 = render_triton([path], [group], width=256, height=256, num_samples=2)
+        img_4 = render_torch([path], [group], width=256, height=256, num_samples=2)
 
         # Check edge pixels - with AA they should have intermediate values
         # The right edge is at x=156

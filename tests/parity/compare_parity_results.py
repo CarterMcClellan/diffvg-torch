@@ -5,7 +5,7 @@ import os
 import json
 import numpy as np
 
-TRITON_DIR = "/home/carter/code/diffvg-parity-tests/results/triton_parity"
+TORCH_DIR = "/home/carter/code/diffvg-parity-tests/results/torch_parity"
 PYDIFFVG_DIR = "/home/carter/code/diffvg-parity-tests/results/pydiffvg_parity"
 
 
@@ -37,7 +37,7 @@ def print_section(title):
 def main():
     print_section("LOADING RESULTS")
 
-    triton = load_results(TRITON_DIR)
+    triton = load_results(TORCH_DIR)
     pydiffvg = load_results(PYDIFFVG_DIR)
 
     print(f"Triton results: {list(triton.keys())}")
@@ -56,15 +56,15 @@ def main():
     # Compare forward outputs
     print_section("FORWARD PASS COMPARISON")
 
-    triton_raw = triton.get('forward_raw')
+    torch_raw = triton.get('forward_raw')
     pydiffvg_raw = pydiffvg.get('forward_raw')
 
-    if triton_raw is not None and pydiffvg_raw is not None:
-        print(f"Triton raw:   shape={triton_raw.shape}, range=[{triton_raw.min():.4f}, {triton_raw.max():.4f}], mean={triton_raw.mean():.4f}")
+    if torch_raw is not None and pydiffvg_raw is not None:
+        print(f"Triton raw:   shape={torch_raw.shape}, range=[{torch_raw.min():.4f}, {torch_raw.max():.4f}], mean={torch_raw.mean():.4f}")
         print(f"pydiffvg raw: shape={pydiffvg_raw.shape}, range=[{pydiffvg_raw.min():.4f}, {pydiffvg_raw.max():.4f}], mean={pydiffvg_raw.mean():.4f}")
 
-        diff = np.abs(triton_raw - pydiffvg_raw)
-        mse = np.mean((triton_raw - pydiffvg_raw)**2)
+        diff = np.abs(torch_raw - pydiffvg_raw)
+        mse = np.mean((torch_raw - pydiffvg_raw)**2)
         print(f"\nPixel-wise difference:")
         print(f"  Max: {diff.max():.4f}")
         print(f"  Mean: {diff.mean():.4f}")
@@ -74,7 +74,7 @@ def main():
         diff_2d = diff[0, 0]
         max_idx = np.unravel_index(np.argmax(diff_2d), diff_2d.shape)
         print(f"\n  Max diff location: y={max_idx[0]}, x={max_idx[1]}")
-        print(f"  Triton value: {triton_raw[0, 0, max_idx[0], max_idx[1]]:.4f}")
+        print(f"  Triton value: {torch_raw[0, 0, max_idx[0], max_idx[1]]:.4f}")
         print(f"  pydiffvg value: {pydiffvg_raw[0, 0, max_idx[0], max_idx[1]]:.4f}")
 
         # Show difference heatmap

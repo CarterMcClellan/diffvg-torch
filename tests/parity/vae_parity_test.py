@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-VAE Parity Test for diffvg-triton vs pydiffvg.
+VAE Parity Test for diffvg-torch vs pydiffvg.
 
 This script runs in either container and produces comparable outputs
 for diagnosing rendering and gradient flow differences.
 
 Usage:
-    # In diffvg-triton container:
-    docker exec diffvg-triton python /workspace/tests/vae_parity_test.py
+    # In diffvg-torch container:
+    docker exec diffvg-torch python /workspace/tests/vae_parity_test.py
 
     # In diffvg container:
     docker exec diffvg python /workspace/tests/vae_parity_test.py
@@ -110,10 +110,10 @@ def render_pydiffvg(canvas_size, all_points, all_widths, all_alphas, num_segment
     return output
 
 
-def render_triton(canvas_size, all_points, all_widths, all_alphas, num_segments, samples=2):
-    """Render using diffvg-triton backend."""
+def render_torch(canvas_size, all_points, all_widths, all_alphas, num_segments, samples=2):
+    """Render using diffvg-torch backend."""
     sys.path.insert(0, '/workspace')
-    from diffvg_triton.render_batch import render_batch_fast
+    from diffvg_torch.render_batch import render_batch_fast
 
     bs = all_points.shape[0]
     num_paths = all_points.shape[1]
@@ -207,7 +207,7 @@ def run_forward_test(inputs, samples=2):
     if BACKEND == "pydiffvg":
         output = render_pydiffvg(imsize, all_points, all_widths, all_alphas, num_segments, samples)
     else:
-        output = render_triton(imsize, all_points, all_widths, all_alphas, num_segments, samples)
+        output = render_torch(imsize, all_points, all_widths, all_alphas, num_segments, samples)
 
     log(f"\nRaw output shape: {output.shape}")
     log(f"Raw output range: [{output.min():.4f}, {output.max():.4f}]")
@@ -269,7 +269,7 @@ def run_gradient_test(inputs, samples=2):
     if BACKEND == "pydiffvg":
         output = render_pydiffvg(imsize, all_points, all_widths, all_alphas, num_segments, samples)
     else:
-        output = render_triton(imsize, all_points, all_widths, all_alphas, num_segments, samples)
+        output = render_torch(imsize, all_points, all_widths, all_alphas, num_segments, samples)
 
     # Normalize
     output_normalized = output * 2.0 - 1.0

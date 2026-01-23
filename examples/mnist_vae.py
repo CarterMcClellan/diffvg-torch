@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Train a VAE MNIST generator using diffvg_triton.
+Train a VAE MNIST generator using diffvg_torch.
 
 This is a standalone example demonstrating differentiable vector graphics
-rendering with the Triton backend.
+rendering with the PyTorch backend.
 
 Usage:
     python mnist_vae.py train
@@ -21,8 +21,8 @@ from torch.utils.data import DataLoader
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
-# Import from diffvg_triton package
-from diffvg_triton.render_batch import render_batch_fast
+# Import from diffvg_torch package
+from diffvg_torch.render_batch import render_batch_fast
 
 
 # Simple logging
@@ -32,7 +32,7 @@ def log(msg, *args):
 
 # Output directory - write to shared results folder for comparison
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-RESULTS_BASE = "/workspace/tests/results/triton"
+RESULTS_BASE = "/workspace/tests/results/torch"
 OUTPUT_DIR = None  # Will be set in train() with timestamp
 
 
@@ -44,7 +44,7 @@ class Flatten(th.nn.Module):
 
 class Path:
     """
-    Minimal Path class compatible with the Triton backend.
+    Minimal Path class compatible with the PyTorch backend.
 
     This replaces pydiffvg.Path for standalone usage.
     """
@@ -58,7 +58,7 @@ class Path:
 
 class ShapeGroup:
     """
-    Minimal ShapeGroup class compatible with the Triton backend.
+    Minimal ShapeGroup class compatible with the PyTorch backend.
 
     This replaces pydiffvg.ShapeGroup for standalone usage.
     """
@@ -117,7 +117,7 @@ class VectorMNISTVAE(th.nn.Module):
 
     Encoder: CNN or FC that maps image -> latent space
     Decoder: MLP that maps latent -> Bezier control points
-    Renderer: Triton backend renders paths to image
+    Renderer: PyTorch backend renders paths to image
     """
 
     def __init__(self, imsize=28, paths=4, segments=5, samples=2, zdim=128,
@@ -537,7 +537,7 @@ def generate_samples(model, epoch, device):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="MNIST VAE with Triton backend")
+    parser = argparse.ArgumentParser(description="MNIST VAE with PyTorch backend")
     parser.add_argument("command", choices=["train", "sample"], help="Command to run")
     parser.add_argument("--cuda", action="store_true", default=th.cuda.is_available(),
                        help="Use CUDA if available")

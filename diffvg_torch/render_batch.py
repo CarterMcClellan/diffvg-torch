@@ -191,7 +191,7 @@ def _compute_min_distance_bezier_batch(
     """
     Compute minimum distance from samples to cubic Bezier curves.
 
-    Uses bounding box culling for efficiency.
+    Fully vectorized with union bbox culling across all batches.
 
     Args:
         sample_pos: [N, 2] sample positions
@@ -204,6 +204,7 @@ def _compute_min_distance_bezier_batch(
     B, P, S, _, _ = control_points.shape
     N = sample_pos.shape[0]
     device = sample_pos.device
+    dtype = sample_pos.dtype
 
     # Compute bounding box expanded by stroke_width + transition
     expand_dist = stroke_widths.unsqueeze(-1).unsqueeze(-1) + 1.5
@@ -214,34 +215,122 @@ def _compute_min_distance_bezier_batch(
     seg_min_exp = seg_min - expand_dist
     seg_max_exp = seg_max + expand_dist
 
+    path_min = seg_min_exp.min(dim=2).values  # [B, P, 2]
+    path_max = seg_max_exp.max(dim=2).values  # [B, P, 2]
+
+    # Union bbox across ALL batches for vectorized computation
+    global_min = path_min.min(dim=0).values.min(dim=0).values  # [2]
+    global_max = path_max.max(dim=0).values.max(dim=0).values  # [2]
+
+    # Filter pixels once using global bbox
+    in_bbox = ((sample_pos >= global_min) & (sample_pos <= global_max)).all(dim=-1)
+    inside_idx = in_bbox.nonzero(as_tuple=True)[0]
+    M = inside_idx.shape[0]
+
+    if M == 0:
+        return torch.full((B, P, N), 1e10, device=device, dtype=dtype)
+
+    sample_inside = sample_pos[inside_idx]  # [M, 2]
+
+    # Fully vectorized: expand for all batches at once
+    # [B, P, M, S, 2] for samples, [B, P, M, S, 4, 2] for control points
+    sample_exp = sample_inside.view(1, 1, M, 1, 2).expand(B, P, M, S, 2)
+    cp_exp = control_points.unsqueeze(2).expand(B, P, M, S, 4, 2)
+
+    # Compute all distances in one call
+    dist_flat = _closest_point_cubic_bezier_newton(
+        sample_exp.reshape(-1, 2),
+        cp_exp.reshape(-1, 4, 2)
+    )
+    dist = dist_flat.view(B, P, M, S).min(dim=-1).values  # [B, P, M]
+
+    # Scatter back to full tensor
+    full_dist = torch.full((B, P, N), 1e10, device=device, dtype=dtype)
+    full_dist[:, :, inside_idx] = dist
+
+    return full_dist
+
+
+def _compute_winding_number_batch(
+    sample_pos: torch.Tensor,
+    curve_points: torch.Tensor,
+    control_points: torch.Tensor,
+    stroke_widths: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute winding number - fully vectorized with union bbox culling.
+
+    Args:
+        sample_pos: [N, 2] sample positions
+        curve_points: [B, P, C, 2] sampled curve points
+        control_points: [B, P, S, 4, 2] for bbox computation
+        stroke_widths: [B, P] stroke widths
+
+    Returns:
+        [B, P, N] inside mask (1 if inside, 0 if outside)
+    """
+    B, P, C, _ = curve_points.shape
+    N = sample_pos.shape[0]
+    device = sample_pos.device
+    dtype = sample_pos.dtype
+
+    # Compute union bbox across all batches
+    expand_dist = stroke_widths.unsqueeze(-1).unsqueeze(-1) + 1.5
+    seg_min = control_points.min(dim=-2).values
+    seg_max = control_points.max(dim=-2).values
+    seg_min_exp = seg_min - expand_dist
+    seg_max_exp = seg_max + expand_dist
     path_min = seg_min_exp.min(dim=2).values
     path_max = seg_max_exp.max(dim=2).values
 
-    sample_2d = sample_pos.view(1, 1, N, 2)
-    path_min_exp = path_min.unsqueeze(2)
-    path_max_exp = path_max.unsqueeze(2)
+    global_min = path_min.min(dim=0).values.min(dim=0).values  # [2]
+    global_max = path_max.max(dim=0).values.max(dim=0).values  # [2]
 
-    in_bbox = ((sample_2d >= path_min_exp) & (sample_2d <= path_max_exp)).all(dim=-1)
+    # Filter pixels once
+    in_bbox = ((sample_pos >= global_min) & (sample_pos <= global_max)).all(dim=-1)
+    inside_idx = in_bbox.nonzero(as_tuple=True)[0]
+    M = inside_idx.shape[0]
 
-    sample_exp = sample_pos.view(1, 1, N, 1, 2).expand(B, P, N, S, 2)
-    cp_exp = control_points.unsqueeze(2).expand(B, P, N, S, 4, 2)
+    if M == 0:
+        return torch.zeros(B, P, N, device=device, dtype=dtype)
 
-    sample_flat = sample_exp.reshape(-1, 2)
-    cp_flat = cp_exp.reshape(-1, 4, 2)
+    pts = sample_pos[inside_idx]  # [M, 2]
 
-    dist_flat = _closest_point_cubic_bezier_newton(sample_flat, cp_flat)
+    # Close the curve
+    curve_closed = torch.cat([curve_points, curve_points[:, :, :1, :]], dim=2)
+    p0 = curve_closed[:, :, :-1, :]  # [B, P, C, 2]
+    p1 = curve_closed[:, :, 1:, :]   # [B, P, C, 2]
 
-    dist = dist_flat.view(B, P, N, S)
-    min_dist = dist.min(dim=-1).values
+    # Fully vectorized winding number computation
+    # Expand for broadcasting: [B, P, M, C]
+    p0_exp = p0.unsqueeze(2)  # [B, P, 1, C, 2]
+    p1_exp = p1.unsqueeze(2)  # [B, P, 1, C, 2]
 
-    # Detach gradients for samples outside bounding box
-    min_dist_culled = torch.where(
-        in_bbox,
-        min_dist,
-        min_dist.detach()
-    )
+    dy = p1_exp[..., 1] - p0_exp[..., 1]  # [B, P, 1, C]
 
-    return min_dist_culled
+    pt_y = pts[:, 1].view(1, 1, M, 1)  # [1, 1, M, 1]
+    pt_x = pts[:, 0].view(1, 1, M, 1)  # [1, 1, M, 1]
+
+    dy_safe = torch.where(torch.abs(dy) > 1e-8, dy, torch.ones_like(dy) * 1e-8)
+    t = (pt_y - p0_exp[..., 1]) / dy_safe  # [B, P, M, C]
+
+    x_int = p0_exp[..., 0] + t * (p1_exp[..., 0] - p0_exp[..., 0])
+
+    softness = 0.1
+    t_valid = torch.sigmoid((t + 0.01) / softness) * torch.sigmoid((1.01 - t) / softness)
+    x_valid = torch.sigmoid((x_int - pt_x + 0.01) / softness)
+
+    direction = torch.where(dy > 0, torch.ones_like(dy), -torch.ones_like(dy))
+    contrib = torch.where(torch.abs(dy) > 1e-8, direction * t_valid * x_valid, torch.zeros_like(t_valid))
+
+    winding = contrib.sum(dim=-1)  # [B, P, M]
+    inside_m = (torch.abs(winding) >= 0.5).float()
+
+    # Scatter back to full tensor
+    full_inside = torch.zeros(B, P, N, device=device, dtype=dtype)
+    full_inside[:, :, inside_idx] = inside_m
+
+    return full_inside
 
 
 def render_batch_fast(
@@ -255,7 +344,7 @@ def render_batch_fast(
     background: float = 1.0,
 ) -> torch.Tensor:
     """
-    Fast batched rendering - fully vectorized PyTorch operations.
+    Fast batched rendering with bbox culling.
 
     Args:
         canvas_width: Output width
@@ -297,75 +386,33 @@ def render_batch_fast(
     sample_y = py_grid + oy_grid
 
     N = H * W * total_samples
-    sample_x_flat = sample_x.reshape(N)
-    sample_y_flat = sample_y.reshape(N)
+    sample_pos = torch.stack([sample_x.reshape(N), sample_y.reshape(N)], dim=-1)
 
-    sample_pos = torch.stack([sample_x_flat, sample_y_flat], dim=-1)
-
-    # Compute distances
+    # Compute distances with bbox culling
     min_dist = _compute_min_distance_bezier_batch(sample_pos, control_points, stroke_widths)
 
-    # Winding number computation
+    # Winding number with bbox culling
     if use_fill:
-        curve_closed = torch.cat([curve_points, curve_points[:, :, :1, :]], dim=2)
-
-        p0 = curve_closed[:, :, :-1, :]
-        p1 = curve_closed[:, :, 1:, :]
-
-        p0_exp = p0.view(B, P, 1, C, 2)
-        p1_exp = p1.view(B, P, 1, C, 2)
-
-        dy = p1_exp[..., 1] - p0_exp[..., 1]
-
-        pt_y = sample_pos[:, 1].view(1, 1, N, 1)
-        pt_x = sample_pos[:, 0].view(1, 1, N, 1)
-
-        dy_safe = torch.where(torch.abs(dy) > 1e-8, dy, torch.ones_like(dy) * 1e-8)
-        t = (pt_y - p0_exp[..., 1]) / dy_safe
-
-        x_int = p0_exp[..., 0] + t * (p1_exp[..., 0] - p0_exp[..., 0])
-
-        softness = 0.1
-        t_valid = torch.sigmoid((t + 0.01) / softness) * torch.sigmoid((1.01 - t) / softness)
-        x_valid = torch.sigmoid((x_int - pt_x + 0.01) / softness)
-
-        direction = torch.where(dy > 0, torch.ones_like(dy), -torch.ones_like(dy))
-        contrib = torch.where(torch.abs(dy) > 1e-8, direction * t_valid * x_valid, torch.zeros_like(t_valid))
-
-        winding = contrib.sum(dim=-1)
-        inside = (torch.abs(winding) >= 0.5).float()
+        inside = _compute_winding_number_batch(sample_pos, curve_points, control_points, stroke_widths)
         inside = inside.detach()
     else:
         inside = torch.zeros(B, P, N, device=device, dtype=dtype)
 
     # Stroke coverage using smoothstep
     half_widths = stroke_widths.view(B, P, 1)
-    alphas_exp = alphas.view(B, P, 1)
 
     def smoothstep(x):
         t = torch.clamp((x + 1.0) / 2.0, 0.0, 1.0)
         return t * t * (3.0 - 2.0 * t)
 
-    dist_threshold = half_widths + 1.5
-    in_gradient_zone = min_dist < dist_threshold
-
-    min_dist_masked = torch.where(
-        in_gradient_zone,
-        min_dist,
-        min_dist.detach()
-    )
-
-    abs_d_plus_w = min_dist_masked + half_widths
-    abs_d_minus_w = min_dist_masked - half_widths
+    abs_d_plus_w = min_dist + half_widths
+    abs_d_minus_w = min_dist - half_widths
     stroke_edge = smoothstep(abs_d_plus_w) - smoothstep(abs_d_minus_w)
 
     coverage = torch.maximum(inside, stroke_edge)
-    stroke_contrib = coverage
-
-    _ = alphas_exp  # Unused for grayscale output
 
     # Composite over paths
-    one_minus_contrib = 1.0 - stroke_contrib
+    one_minus_contrib = 1.0 - coverage
     combined = one_minus_contrib.prod(dim=1)
     sample_colors = background * combined
 

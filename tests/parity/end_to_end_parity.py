@@ -13,7 +13,7 @@ def log(msg):
     print(f"[INFO] {msg}")
 
 
-def render_differentiable_triton(height, width, all_points, all_widths, all_alphas, num_segments, samples=2):
+def render_differentiable_torch(height, width, all_points, all_widths, all_alphas, num_segments, samples=2):
     """Local copy of render_differentiable for testing."""
     bs = all_points.shape[0]
     num_paths = all_points.shape[1]
@@ -129,9 +129,9 @@ def main():
     log(f"  Stroke width: {all_widths[0, 0].item()}")
     log(f"  Alpha: {all_alphas[0, 0].item()}")
 
-    # Render with triton renderer
-    log("\nRendering with triton...")
-    output_raw = render_differentiable_triton(
+    # Render with torch renderer
+    log("\nRendering with torch...")
+    output_raw = render_differentiable_torch(
         imsize, imsize,
         all_points,
         all_widths,
@@ -171,8 +171,8 @@ def main():
     output_dir = "/workspace/tests/results"
     os.makedirs(output_dir, exist_ok=True)
 
-    np.save(f"{output_dir}/triton_vae_output.npy", output_final.numpy())
-    log(f"\nSaved output to {output_dir}/triton_vae_output.npy")
+    np.save(f"{output_dir}/torch_vae_output.npy", output_final.numpy())
+    log(f"\nSaved output to {output_dir}/torch_vae_output.npy")
 
     # Summary statistics
     stroke_pixels = (output_final > 0).sum().item()

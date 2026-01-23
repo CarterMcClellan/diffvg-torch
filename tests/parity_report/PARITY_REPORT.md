@@ -1,4 +1,4 @@
-# Cairo vs diffvg-triton Parity Report
+# Cairo vs diffvg-torch Parity Report
 
 ## Summary
 

@@ -1,5 +1,5 @@
 """
-Main rendering functions for diffvg-triton.
+Main rendering functions for diffvg-torch.
 
 Implements vectorized GPU rendering pipeline:
 1. Sample generation (multi-sample anti-aliasing)

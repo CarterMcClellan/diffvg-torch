@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Benchmark diffvg-triton vs pydiffvg rendering performance.
+Benchmark diffvg-torch vs pydiffvg rendering performance.
 
 Measures forward and backward pass times for batched bezier rendering.
 """
@@ -10,14 +10,14 @@ import torch
 import numpy as np
 
 
-def benchmark_triton(batch_sizes=[1, 8, 32, 64], num_warmup=5, num_runs=20):
-    """Benchmark diffvg-triton batched renderer."""
-    from diffvg_triton.render_batch import render_batch_fast
+def benchmark_torch(batch_sizes=[1, 8, 32, 64], num_warmup=5, num_runs=20):
+    """Benchmark diffvg-torch batched renderer."""
+    from diffvg_torch.render_batch import render_batch_fast
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
     print(f"\n{'='*60}")
-    print("diffvg-triton Benchmark")
+    print("diffvg-torch Benchmark")
     print(f"{'='*60}\n")
 
     results = []
@@ -182,16 +182,16 @@ def benchmark_pydiffvg(batch_sizes=[1, 8, 32, 64], num_warmup=3, num_runs=10):
     return results
 
 
-def print_comparison(triton_results, pydiffvg_results):
+def print_comparison(torch_results, pydiffvg_results):
     """Print speedup comparison."""
     if pydiffvg_results is None:
         return
 
     print(f"\n{'='*60}")
-    print("Speedup (diffvg-triton vs pydiffvg)")
+    print("Speedup (diffvg-torch vs pydiffvg)")
     print(f"{'='*60}\n")
 
-    for t, p in zip(triton_results, pydiffvg_results):
+    for t, p in zip(torch_results, pydiffvg_results):
         bs = t['batch_size']
         fwd_speedup = p['forward_ms'] / t['forward_ms']
         bwd_speedup = p['backward_ms'] / t['backward_ms']
@@ -201,6 +201,6 @@ def print_comparison(triton_results, pydiffvg_results):
 if __name__ == '__main__':
     batch_sizes = [1, 8, 32, 64]
 
-    triton_results = benchmark_triton(batch_sizes)
+    torch_results = benchmark_torch(batch_sizes)
     pydiffvg_results = benchmark_pydiffvg(batch_sizes)
-    print_comparison(triton_results, pydiffvg_results)
+    print_comparison(torch_results, pydiffvg_results)

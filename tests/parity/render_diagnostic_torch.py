@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Diagnostic script for diffvg-triton rendering - outputs detailed info for parity comparison.
+Diagnostic script for diffvg-torch rendering - outputs detailed info for parity comparison.
 
-Run in diffvg-triton container:
-    docker exec diffvg-triton python /workspace/tests/render_diagnostic_triton.py
+Run in diffvg-torch container:
+    docker exec diffvg-torch python /workspace/tests/render_diagnostic_torch.py
 """
 
 import sys
@@ -12,7 +12,7 @@ import json
 import numpy as np
 import torch
 
-# Ensure diffvg_triton is importable
+# Ensure diffvg_torch is importable
 sys.path.insert(0, '/workspace')
 
 def log(msg, level="INFO"):
@@ -20,7 +20,7 @@ def log(msg, level="INFO"):
 
 
 class MockPath:
-    """Mock Path for diffvg-triton."""
+    """Mock Path for diffvg-torch."""
     def __init__(self, points, num_control_points, is_closed, stroke_width):
         self.points = points
         self.num_control_points = num_control_points
@@ -30,7 +30,7 @@ class MockPath:
 
 
 class MockShapeGroup:
-    """Mock ShapeGroup for diffvg-triton."""
+    """Mock ShapeGroup for diffvg-torch."""
     def __init__(self, shape_ids, fill_color, stroke_color):
         self.shape_ids = shape_ids if isinstance(shape_ids, torch.Tensor) else torch.tensor(shape_ids, dtype=torch.int32)
         self.fill_color = fill_color
@@ -67,9 +67,9 @@ def create_test_scene():
 
 
 def render_scene(shapes, groups, width, height, num_samples=2):
-    """Render using diffvg-triton."""
-    from diffvg_triton.scene import flatten_scene
-    from diffvg_triton.render import render_scene_py, RenderConfig
+    """Render using diffvg-torch."""
+    from diffvg_torch.scene import flatten_scene
+    from diffvg_torch.render import render_scene_py, RenderConfig
 
     device = torch.device('cpu')
     scene = flatten_scene(width, height, shapes, groups, device=device)
@@ -85,11 +85,11 @@ def render_scene(shapes, groups, width, height, num_samples=2):
 
 
 def main():
-    from diffvg_triton.scene import flatten_scene
-    from diffvg_triton.render import RenderConfig
+    from diffvg_torch.scene import flatten_scene
+    from diffvg_torch.render import RenderConfig
 
     log("="*60)
-    log("DIFFVG-TRITON RENDER DIAGNOSTIC")
+    log("DIFFVG-TORCH RENDER DIAGNOSTIC")
     log("="*60)
 
     width, height = 28, 28
@@ -156,13 +156,13 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     img_np = img.numpy()
-    np.save(f"{output_dir}/triton_output.npy", img_np)
-    log(f"\nSaved full output to {output_dir}/triton_output.npy")
+    np.save(f"{output_dir}/torch_output.npy", img_np)
+    log(f"\nSaved full output to {output_dir}/torch_output.npy")
 
     # Save as JSON
-    with open(f"{output_dir}/triton_pixels.json", "w") as f:
+    with open(f"{output_dir}/torch_pixels.json", "w") as f:
         json.dump(result, f, indent=2)
-    log(f"Saved pixel data to {output_dir}/triton_pixels.json")
+    log(f"Saved pixel data to {output_dir}/torch_pixels.json")
 
     # Print specific test pixels
     log("\n" + "="*60)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Train a VQ-VAE for MNIST using diffvg_triton.
+Train a VQ-VAE for MNIST using diffvg_torch.
 
 VQ-VAE (Vector Quantized Variational Autoencoder) uses discrete latent codes
 instead of continuous latent vectors. This allows for better reconstruction
@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
-from diffvg_triton.render_batch import render_batch_fast
+from diffvg_torch.render_batch import render_batch_fast
 
 
 class VectorQuantizerEMA(nn.Module):
@@ -264,7 +264,7 @@ class BezierDecoder(nn.Module):
             control_points.append(seg_points)
         control_points = torch.stack(control_points, dim=2)
 
-        # Render using diffvg_triton
+        # Render using diffvg_torch
         rendered = render_batch_fast(
             self.canvas_size, self.canvas_size,
             control_points,

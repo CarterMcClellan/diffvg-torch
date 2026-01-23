@@ -1,7 +1,7 @@
 """
-Cairo vs diffvg-triton Parity Tests
+Cairo vs diffvg-torch Parity Tests
 
-Comprehensive tests comparing diffvg-triton rendering output against CairoSVG
+Comprehensive tests comparing diffvg-torch rendering output against CairoSVG
 for various SVG features:
 - Simple paths (lines, curves)
 - Colors (fill, stroke)
@@ -20,9 +20,9 @@ import io
 import tempfile
 import os
 
-# Import diffvg-triton components
-from diffvg_triton import render, Path, ShapeGroup, svg_to_scene, save_svg
-from diffvg_triton.svg import _parse_path_d
+# Import diffvg-torch components
+from diffvg_torch import render, Path, ShapeGroup, svg_to_scene, save_svg
+from diffvg_torch.svg import _parse_path_d
 
 # Try to import Cairo
 try:
@@ -64,7 +64,7 @@ def render_svg_cairo(svg_string: str, width: int = 128, height: int = 128) -> np
 
 
 def render_svg_diffvg(svg_string: str, width: int = 128, height: int = 128) -> np.ndarray:
-    """Render SVG string using diffvg-triton."""
+    """Render SVG string using diffvg-torch."""
     # Save SVG to temp file for parsing
     with tempfile.NamedTemporaryFile(mode='w', suffix='.svg', delete=False) as f:
         if not svg_string.strip().startswith('<svg'):
@@ -81,7 +81,7 @@ def render_svg_diffvg(svg_string: str, width: int = 128, height: int = 128) -> n
             # Return white RGBA image if no shapes (matching Cairo's behavior)
             return np.ones((height, width, 4), dtype=np.float32)
 
-        # Render using diffvg-triton with proper scaling
+        # Render using diffvg-torch with proper scaling
         # canvas_w, canvas_h are the viewBox dimensions from the SVG
         # width, height are the desired output dimensions
         result = render(
@@ -586,7 +586,7 @@ def generate_parity_report(output_dir: str = None):
             axes[idx, 0].axis('off')
 
             axes[idx, 1].imshow(diffvg_img)
-            axes[idx, 1].set_title('diffvg-triton')
+            axes[idx, 1].set_title('diffvg-torch')
             axes[idx, 1].axis('off')
 
             axes[idx, 2].imshow(diff_img * 5)  # Amplify differences
@@ -615,7 +615,7 @@ def generate_parity_report(output_dir: str = None):
 
     # Write summary
     with open(os.path.join(output_dir, 'PARITY_REPORT.md'), 'w') as f:
-        f.write("# Cairo vs diffvg-triton Parity Report\n\n")
+        f.write("# Cairo vs diffvg-torch Parity Report\n\n")
         f.write("## Summary\n\n")
         f.write("| Test Case | MAE | RGB MAE | PSNR | Status |\n")
         f.write("|-----------|-----|---------|------|--------|\n")
@@ -644,7 +644,7 @@ class TestRenderBatchFast:
 
     def test_basic_render(self):
         """Test basic rendering with render_batch_fast."""
-        from diffvg_triton import render_batch_fast
+        from diffvg_torch import render_batch_fast
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -679,7 +679,7 @@ class TestRenderBatchFast:
 
     def test_batch_render(self):
         """Test batched rendering."""
-        from diffvg_triton import render_batch_fast
+        from diffvg_torch import render_batch_fast
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -704,7 +704,7 @@ class TestRenderBatchFast:
 
     def test_gradient_flow(self):
         """Test that gradients flow through render_batch_fast."""
-        from diffvg_triton import render_batch_fast
+        from diffvg_torch import render_batch_fast
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -738,7 +738,7 @@ class TestRenderBatchFast:
         in anti-aliasing, fill algorithm, etc. This test verifies the shape is
         rendered in the correct location with reasonable coverage.
         """
-        from diffvg_triton import render_batch_fast
+        from diffvg_torch import render_batch_fast
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -846,7 +846,7 @@ class TestSVGParsing:
 
 if __name__ == "__main__":
     print("="*60)
-    print("Cairo vs diffvg-triton Parity Tests")
+    print("Cairo vs diffvg-torch Parity Tests")
     print("="*60)
 
     if not CAIRO_AVAILABLE:

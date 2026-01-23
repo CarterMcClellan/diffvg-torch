@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Cross-validation script for comparing pydiffvg and diffvg-triton outputs.
+Cross-validation script for comparing pydiffvg and diffvg-torch outputs.
 
-This script should be run inside the diffvg container with diffvg-triton mounted.
+This script should be run inside the diffvg container with diffvg-torch mounted.
 
 Usage:
-    docker exec -v /path/to/diffvg-triton:/diffvg-triton diffvg \
-        python /diffvg-triton/tests/cross_validation.py
+    docker exec -v /path/to/diffvg-torch:/diffvg-torch diffvg \
+        python /diffvg-torch/tests/cross_validation.py
 """
 
 import sys
@@ -14,10 +14,10 @@ import os
 import torch
 import numpy as np
 
-# Add diffvg-triton to path if needed
-TRITON_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if TRITON_PATH not in sys.path:
-    sys.path.insert(0, TRITON_PATH)
+# Add diffvg-torch to path if needed
+TORCH_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if TORCH_PATH not in sys.path:
+    sys.path.insert(0, TORCH_PATH)
 
 
 def render_with_pydiffvg(shapes, shape_groups, width, height, num_samples=2):
@@ -42,9 +42,9 @@ def render_with_pydiffvg(shapes, shape_groups, width, height, num_samples=2):
     return img.detach().cpu()
 
 
-def render_with_triton(shapes, shape_groups, width, height, num_samples=2):
-    """Render scene using diffvg-triton."""
-    from diffvg_triton.render import render
+def render_with_torch(shapes, shape_groups, width, height, num_samples=2):
+    """Render scene using diffvg-torch."""
+    from diffvg_torch.render import render
 
     img = render(
         canvas_width=width,
@@ -143,14 +143,14 @@ def save_comparison(img1, img2, prefix):
         import pydiffvg
 
         pydiffvg.imwrite(img1, f'{prefix}_pydiffvg.png', gamma=2.2)
-        pydiffvg.imwrite(img2, f'{prefix}_triton.png', gamma=2.2)
+        pydiffvg.imwrite(img2, f'{prefix}_torch.png', gamma=2.2)
 
         # Difference image (amplified)
         diff = torch.abs(img1 - img2) * 10
         diff = diff.clamp(0, 1)
         pydiffvg.imwrite(diff, f'{prefix}_diff.png', gamma=1.0)
 
-        print(f"  Saved: {prefix}_pydiffvg.png, {prefix}_triton.png, {prefix}_diff.png")
+        print(f"  Saved: {prefix}_pydiffvg.png, {prefix}_torch.png, {prefix}_diff.png")
     except Exception as e:
         print(f"  Could not save images: {e}")
 
@@ -158,7 +158,7 @@ def save_comparison(img1, img2, prefix):
 def run_cross_validation():
     """Run cross-validation tests."""
     print("=" * 60)
-    print("Cross-validation: pydiffvg vs diffvg-triton")
+    print("Cross-validation: pydiffvg vs diffvg-torch")
     print("=" * 60)
 
     width, height = 256, 256
@@ -171,11 +171,11 @@ def run_cross_validation():
     print("  Rendering with pydiffvg...")
     img_diffvg = render_with_pydiffvg(shapes, groups, width, height, num_samples)
 
-    print("  Rendering with diffvg-triton...")
-    img_triton = render_with_triton(shapes, groups, width, height, num_samples)
+    print("  Rendering with diffvg-torch...")
+    img_torch = render_with_torch(shapes, groups, width, height, num_samples)
 
-    max_diff, mean_diff = compare_images(img_diffvg, img_triton, "Filled Square")
-    save_comparison(img_diffvg, img_triton, "results/cross_val_square")
+    max_diff, mean_diff = compare_images(img_diffvg, img_torch, "Filled Square")
+    save_comparison(img_diffvg, img_torch, "results/cross_val_square")
 
     # Test 2: Stroked bezier curve
     print("\n[Test 2] Stroked Bezier Curve")
@@ -184,11 +184,11 @@ def run_cross_validation():
     print("  Rendering with pydiffvg...")
     img_diffvg = render_with_pydiffvg(shapes, groups, width, height, num_samples)
 
-    print("  Rendering with diffvg-triton...")
-    img_triton = render_with_triton(shapes, groups, width, height, num_samples)
+    print("  Rendering with diffvg-torch...")
+    img_torch = render_with_torch(shapes, groups, width, height, num_samples)
 
-    max_diff, mean_diff = compare_images(img_diffvg, img_triton, "Bezier Curve")
-    save_comparison(img_diffvg, img_triton, "results/cross_val_bezier")
+    max_diff, mean_diff = compare_images(img_diffvg, img_torch, "Bezier Curve")
+    save_comparison(img_diffvg, img_torch, "results/cross_val_bezier")
 
     print("\n" + "=" * 60)
     print("Cross-validation complete!")
